@@ -261,6 +261,12 @@
 
 #define SHM_ENV_VAR         "__AFL_SHM_ID"
 
+#ifdef CONFIG_S2E
+/* Environment variable used to pass virgin SHM ID to the called program. */
+
+#define VIRGIN_SHM_ENV_VAR         "__AFL_VIRGIN_SHM_ID"
+#endif
+
 /* Other less interesting, internal-only variables. */
 
 #define CLANG_ENV_VAR       "__AFL_CLANG_MODE"
@@ -290,6 +296,14 @@
    timeout plus this much for the fork server to spin up. */
 
 #define FORK_WAIT_MULT      10
+
+/* Pipe to synchronize S2E and AFL
+ */
+#ifdef CONFIG_S2E
+#define S2ECTRLPIPE 106 // pipe used to synchronize myself and S2E (for S2E write)
+#define AFLCTRLPIPE 160 // pipe used to synchronize myself and S2E (for AFL write)
+#endif
+
 
 /* Calibration timeout adjustments, to be a bit more generous when resuming
    fuzzing sessions or trying to calibrate already-added internal finds.

@@ -28,7 +28,7 @@
         } \
       }while(0)
 
-// Every control pipe
+// Every control pipe (Do we need this?)
 /*
  * FIXME: Each qemu wants to have a unique control pipe, so PIPE fd should have relationship with qemu's pid.
  * While as pid can be (0, 65536), so we have to modify the file descriptor limit from default(1024) to 65536.

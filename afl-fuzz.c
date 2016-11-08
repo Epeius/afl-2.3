@@ -2567,40 +2567,32 @@ static u8 run_target(char** argv) {
 #endif
 
 #ifdef CONFIG_S2E
-static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault);
+static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault, QemuInstance* qemu);
 static void check_qemu_tracebits(QemuInstance* qemu)
 {
     // avoid compiler accesses registers and cache.
     MEM_BARRIER();
 
-    if (qemu->cur_queue) { // FIXME: calibration ? Only do calibration once at perform_dry_run.
-        struct queue_entry* _cur = (struct queue_entry*) (qemu->cur_queue);
-        total_cal_us += qemu->stop_us - qemu->start_us;
-        total_cal_cycles += 1;
+    if (!qemu->cur_queue)
+        PFATAL("current queue is NULL???");
+    struct queue_entry* _cur = (struct queue_entry*) (qemu->cur_queue);
+    /* OK, let's collect some stats about the performance of this test case.
+     This is used for fuzzing air time calculations in calculate_score(). */
+    _cur->exec_us = (qemu->stop_us - qemu->start_us);
+    _cur->bitmap_size = count_bytes(qemu->trace_bits);
+    _cur->handicap = queue_cycle - 1;
+    _cur->cal_failed = 0;
+    _cur->exec_cksum = hash32(qemu->trace_bits, MAP_SIZE, HASH_CONST);
 
-        /* OK, let's collect some stats about the performance of this test case.
-         This is used for fuzzing air time calculations in calculate_score(). */
-
-        _cur->exec_us = (qemu->stop_us - qemu->start_us);
-        _cur->bitmap_size = count_bytes(qemu->trace_bits);
-        _cur->handicap = 0;
-        _cur->cal_failed = 0;
-        _cur->exec_cksum = hash32(qemu->trace_bits, MAP_SIZE, HASH_CONST);
-        total_bitmap_size += _cur->bitmap_size;
-        total_bitmap_entries++;
-
-        update_bitmap_score(_cur);
-    } else {
-
-        // set the loop bucket
+    // set the loop bucket
 #ifdef __x86_64__
-        classify_counts((u64*)qemu->trace_bits);
+    classify_counts((u64*)qemu->trace_bits);
 #else
-        classify_counts((u32*) qemu->trace_bits);
+    classify_counts((u32*) qemu->trace_bits);
 #endif /* ^__x86_64__ */
-        u8 res = save_if_interesting(NULL, (qemu->out_file), (qemu->len), qemu->fault);
-        queued_discovered += res;
-    }
+    u8 res = save_if_interesting(NULL, (qemu->out_file), (qemu->len), qemu->fault, qemu);
+    queued_discovered += res;
+
     if (qemu->out_file) {
         free(qemu->out_file); // avoid memory leak
         qemu->out_file = NULL;
@@ -2948,6 +2940,10 @@ abort_calibration:
 
 #else
 // Assume the case has no variable behavior, so execute each just once time.
+/*
+ * Calibration updates some global variables lile total_cal_us, while this update should be processed
+ * when checking qemu traces in order to obtain correct score.
+ */
 static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
                          u32 handicap, u8 from_queue) {
 
@@ -2978,6 +2974,8 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   fault = run_target(argv);
 
   total_cal_cycles += 1;
+  //FIXME: how to handle total_bitmap_size and total_cal_us ?
+  total_bitmap_entries++;
 
   q->cal_failed  = 0;
   stage_name = old_sn;
@@ -3453,9 +3451,11 @@ static void write_crash_readme(void) {
 /* Check if the result of an execve() during routine fuzzing is interesting,
    save or queue the input test case for further analysis if so. Returns 1 if
    entry is saved, 0 otherwise. */
-
+#ifdef CONFIG_S2E
+static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault, QemuInstance* qemu) {
+#else
 static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
-
+#endif
   u8  *fn = "";
   u8  hnb;
   s32 fd;
@@ -3501,15 +3501,12 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
 #ifdef CONFIG_S2E
     /* Give up calibration when combining with symbex. */
-    queue_top->exec_us     = (curQemu->stop_us - curQemu->start_us);
-	queue_top->bitmap_size = count_bytes(curQemu->trace_bits);
-	queue_top->handicap    = queue_cycle - 1;
-	queue_top->cal_failed  = 0;
-
-	total_bitmap_size += queue_top->bitmap_size;
+	total_cal_us += qemu->stop_us - qemu->start_us;
+    total_cal_cycles += 1; // trick: regard current test as the calibration, so we add only 1
+	total_bitmap_size += ((struct queue_entry*)(qemu->cur_queue))->bitmap_size;
 	total_bitmap_entries++;
 
-	update_bitmap_score(queue_top);
+	update_bitmap_score(qemu->cur_queue);
 #else
     /* Try to calibrate inline; this also calls update_bitmap_score() when
        successful. */
@@ -4926,6 +4923,10 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len, u8 stage) {
   u8 fault = run_target(argv);
 
   if (stop_soon) return 1;
+
+  if (!(stage_cur % stats_update_freq) || stage_cur + 1 == stage_max)
+      show_stats();
+
   return fault;
 }
 
@@ -5023,7 +5024,7 @@ static u32 choose_block_len(u32 limit) {
 static u32 calculate_score(struct queue_entry* q) {
 
   u32 avg_exec_us = total_cal_us / total_cal_cycles;
-  u32 avg_bitmap_size = total_bitmap_size / total_bitmap_entries;
+  u32 avg_bitmap_size = total_bitmap_size / total_bitmap_entries; ///FIXME: total_bitmap_entries can be 0
   u32 perf_score = 100;
 
   /* Adjust score based on execution speed of this path, compared to the
@@ -7152,7 +7153,14 @@ abandon_entry:
 
 }
 
+#ifdef CONFIG_S2E
 
+/* Currently cluster is not supported! */
+static void sync_fuzzers(char** argv) {
+    return;
+}
+
+#else
 /* Grab interesting test cases from other fuzzers. */
 
 static void sync_fuzzers(char** argv) {
@@ -7255,12 +7263,7 @@ static void sync_fuzzers(char** argv) {
 
         /* See what happens. We rely on save_if_interesting() to catch major
            errors and save the test case. */
-#ifdef CONFIG_S2E
-        write_to_testcase(mem, st.st_size, NULL, STAGE_SYNC);
-#else
         write_to_testcase(mem, st.st_size);
-#endif
-
         fault = run_target(argv);
 
         if (stop_soon) return;
@@ -7292,7 +7295,7 @@ static void sync_fuzzers(char** argv) {
   closedir(sd);
 
 }
-
+#endif
 
 /* Handle stop signal (Ctrl-C, etc). */
 
@@ -8508,6 +8511,7 @@ int main(int argc, char** argv) {
   // Let qemus to create the trace bits bitmap share memory.
   PARAL_QEMU(setupTracebits)();
 #endif
+
 
   setup_dirs_fds();
   read_testcases();

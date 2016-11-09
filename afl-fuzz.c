@@ -2635,12 +2635,13 @@ static void do_extra_handles(QemuInstance* qemu)
 }
 
 // When finding a qemu has finished its job, try to analyze the result.
-static void handle_onetestdone(QemuInstance* done_qemu) {
+void handle_onetestdone(QemuInstance* done_qemu) {
     //OKF("start onetestdone.");
     check_qemu_tracebits(done_qemu);
     do_extra_handles(done_qemu);
     //done_qemu->isfree = 1; // Mark this qemu as a free one
     done_qemu->cur_queue = NULL;
+    done_qemu->handled = 1;
     //show_stats();
     //OKF("end onetestdone.");
     return;
@@ -2668,10 +2669,45 @@ static void handle_onetestdone(QemuInstance* done_qemu) {
 #endif
 
 #ifdef CONFIG_S2E
+
+/*
+ * After waiting for all qemus are free, some unhandled qemus will be processed through this
+ * procedure so that we are NOT missing critical results before next test starts.
+ */
+void process_unhandled_qemus(void) {
+    while (1) {
+        u8 buffer[FIFOBUFFERSIZE + 1];
+        if(read(qemu_quene_fd, buffer, FIFOBUFFERSIZE) == -1) {
+            if(errno == EAGAIN) //XXX: unexpected interrupt
+                break;
+        } else {
+            int tarQemuPid = 0;
+            u8 fault;
+            u64 execTime;
+            GETQUEUEITEM(buffer, tarQemuPid, fault, execTime);
+            u8 i = 0;
+            while (i < parallel_qemu_num) {
+                if(tarQemuPid == allQemus[i].pid){
+                    QemuInstance* tmp_qemu = &allQemus[i];
+                    tmp_qemu->stop_us = tmp_qemu->start_us + execTime;
+                    tmp_qemu->fault = fault;
+                    if (tmp_qemu->handled)
+                        PFATAL("we don't want to rehandle a qemu!");
+                    handle_onetestdone(tmp_qemu);
+                    break;
+                }
+                i++;
+            }
+        }
+    }
+}
+
+
 /*
  * When writing testcase in multi-qemu mode, first check which qemu is free,
  * then parse the corresponding testcase directory and throw testcase there.
  */
+//TODO: how to write testcase after waiting for all qemus, i.e. WAIT_ALLQEMUS_FREE
 static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cur_stage) {
   u8 buffer[FIFOBUFFERSIZE + 1];
   int tarQemuPid = 0;
@@ -2679,7 +2715,7 @@ static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cu
   u64 execTime;
   while(!tarQemuPid){
 	  memset(buffer, '\0', sizeof(buffer));
-	  if(read(qemu_quene_fd, buffer, FIFOBUFFERSIZE) == -1)
+	  if(read(qemu_quene_fd, buffer, FIFOBUFFERSIZE) == -1) // we should be blocked here so that we can get a free qemu
 		  if(errno == EAGAIN) //XXX: avoid interrupt
 			  continue;
 	  GETQUEUEITEM(buffer, tarQemuPid, fault, execTime);
@@ -2972,10 +3008,6 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   write_to_testcase(use_mem, q->len, q, STAGE_CALIBRATE);
 
   fault = run_target(argv);
-
-  total_cal_cycles += 1;
-  //FIXME: how to handle total_bitmap_size and total_cal_us ?
-  total_bitmap_entries++;
 
   q->cal_failed  = 0;
   stage_name = old_sn;
@@ -8540,6 +8572,10 @@ int main(int argc, char** argv) {
 #endif
 
   perform_dry_run(use_argv);
+
+#ifdef CONFIG_S2E
+  WAIT_ALLQEMUS_FREE; // make sure no qemu is performing dry run
+#endif
 
   cull_queue();
 

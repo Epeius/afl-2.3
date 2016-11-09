@@ -14,20 +14,6 @@
 // Share memory ID
 #define READYSHMID 1234
 
-// Wait for all the qemus until they are all free
-#define WAIT_ALLQEMUS_FREE \
-      do { \
-        int i = 0; \
-        while (i < parallel_qemu_num) { \
-            if(ReadArray[allQemus[i].pid]) \
-                i++; \
-            else{ \
-                i = 0; \
-                sleep(0.001); \
-            } \
-        } \
-      }while(0)
-
 // Every control pipe (Do we need this?)
 /*
  * FIXME: Each qemu wants to have a unique control pipe, so PIPE fd should have relationship with qemu's pid.
@@ -63,6 +49,25 @@ void PARAL_QEMU(InitQemuQueue) (void);
 
 // Set up trace-bits bitmap for each qemu instance.
 void PARAL_QEMU(setupTracebits) (void);
+
+
+extern void process_unhandled_qemus();
+
+// Wait for all the qemus until they are all free and collect their results
+#define WAIT_ALLQEMUS_FREE               \
+      do {                              \
+        int i = 0;                      \
+        while (i < parallel_qemu_num) { \
+            if(ReadArray[allQemus[i].pid]) \
+                i++;            \
+            else{               \
+                i = 0;          \
+                sleep(0.001); \
+            }                   \
+        }                   \
+        process_unhandled_qemus();  \
+      } while (0)
+
 
 
 #endif /* AFL_PARREL_QEMU_H_ */

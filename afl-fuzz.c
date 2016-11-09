@@ -2580,7 +2580,7 @@ static void check_qemu_tracebits(QemuInstance* qemu)
      This is used for fuzzing air time calculations in calculate_score(). */
     _cur->exec_us = (qemu->stop_us - qemu->start_us);
     _cur->bitmap_size = count_bytes(qemu->trace_bits);
-    _cur->handicap = queue_cycle - 1;
+    _cur->handicap = (qemu->cur_stage == STAGE_CALIBRATE) ? 0 : queue_cycle -1;
     _cur->cal_failed = 0;
     _cur->exec_cksum = hash32(qemu->trace_bits, MAP_SIZE, HASH_CONST);
 
@@ -2707,7 +2707,6 @@ void process_unhandled_qemus(void) {
  * When writing testcase in multi-qemu mode, first check which qemu is free,
  * then parse the corresponding testcase directory and throw testcase there.
  */
-//TODO: how to write testcase after waiting for all qemus, i.e. WAIT_ALLQEMUS_FREE
 static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cur_stage) {
   u8 buffer[FIFOBUFFERSIZE + 1];
   int tarQemuPid = 0;
@@ -2717,20 +2716,36 @@ static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cu
 	  memset(buffer, '\0', sizeof(buffer));
 	  if(read(qemu_quene_fd, buffer, FIFOBUFFERSIZE) == -1) // we should be blocked here so that we can get a free qemu
 		  if(errno == EAGAIN) //XXX: avoid interrupt
-			  continue;
+			  break;
 	  GETQUEUEITEM(buffer, tarQemuPid, fault, execTime);
   }
+  /*
+   *  Touch this means all qemu are free and already handled, so what
+   *  needs to done is only to feed the qemus. This also will not bring starvation
+   *  because mutation is much more faster than perform a real test in full system mode.
+   */
   u8 i = 0;
-  while (i < parallel_qemu_num) {
-	  if(tarQemuPid == allQemus[i].pid){
-		  curQemu = &allQemus[i];
-		  break;
-	  }
-	  i++;
+  if (!tarQemuPid) {
+      while (i < parallel_qemu_num) {
+          if(allQemus[i].handled){
+              curQemu = &allQemus[i];
+              break;
+          }
+          i++;
+      }
+  } else {
+      while (i < parallel_qemu_num) {
+          if(tarQemuPid == allQemus[i].pid){
+              curQemu = &allQemus[i];
+              break;
+          }
+          i++;
+      }
+      if(curQemu->start_us){ // not the first run
+          curQemu->stop_us = curQemu->start_us + execTime;
+      }
   }
-  if(curQemu->start_us){ // not the first run
-	  curQemu->stop_us = curQemu->start_us + execTime;
-  }
+
   curQemu->cur_queue = cur;
   curQemu->cur_stage = cur_stage;
   curQemu->fault = fault;
@@ -3517,6 +3532,9 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
 #endif /* ^!SIMPLE_FILES */
 
+#ifdef CONFIG_S2E
+    if (qemu->cur_stage != STAGE_CALIBRATE) // avoid repeating adding to queue at startup
+#endif
     add_to_queue(fn, len, 0);
 
     if (hnb == 2) {

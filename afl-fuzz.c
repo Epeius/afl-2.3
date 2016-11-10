@@ -161,6 +161,10 @@ static s32 shm_id;                    /* ID of the SHM region             */
 static s32 virgin_shm_id;             /* ID of the SHM region for virgin  */
 #endif
 
+#ifdef CONFIG_S2E
+u8 isAfterWait;                      /* Flag marks after waiting all qemus */
+#endif
+
 static volatile u8 stop_soon,         /* Ctrl-C pressed?                  */
                    clear_screen = 1,  /* Window resized?                  */
                    child_timed_out;   /* Traced process timed out?        */
@@ -2663,26 +2667,32 @@ void handle_onetestdone(QemuInstance* done_qemu) {
  * procedure so that we are NOT missing critical results before next test starts.
  */
 void process_unhandled_qemus(void) {
+    int tarQemuPid;
+    u8 fault, i;
+    u64 execTime;
     while (1) {
         u8 buffer[FIFOBUFFERSIZE + 1];
         if(read(qemu_quene_fd, buffer, FIFOBUFFERSIZE) == -1) {
             if(errno == EAGAIN) //XXX: unexpected interrupt
                 break;
         } else {
-            int tarQemuPid = 0;
-            u8 fault;
-            u64 execTime;
+            tarQemuPid = 0;
+            fault = 0;
+            execTime = 0;
             GETQUEUEITEM(buffer, tarQemuPid, fault, execTime);
-            u8 i = 0;
+            i = 0;
             while (i < parallel_qemu_num) {
                 if(tarQemuPid == allQemus[i].pid){
+                    if (allQemus[i].handled){
+                        i++;
+                        continue;
+                    }
                     QemuInstance* tmp_qemu = &allQemus[i];
-                    tmp_qemu->stop_us = tmp_qemu->start_us + execTime;
-                    tmp_qemu->fault = fault;
-                    if (tmp_qemu->handled)
-                        PFATAL("we don't want to rehandle a qemu!");
-                    if (tmp_qemu && tmp_qemu->out_file)
+                    if (tmp_qemu && tmp_qemu->out_file){
+                        tmp_qemu->stop_us = tmp_qemu->start_us + execTime;
+                        tmp_qemu->fault = fault;
                         handle_onetestdone(tmp_qemu);
+                    }
                     break;
                 }
                 i++;
@@ -2696,11 +2706,14 @@ void process_unhandled_qemus(void) {
  * When writing testcase in multi-qemu mode, first check which qemu is free,
  * then parse the corresponding testcase directory and throw testcase there.
  */
+//FIXME: bad goto
 static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cur_stage) {
   u8 buffer[FIFOBUFFERSIZE + 1];
   int tarQemuPid = 0;
-  u8 fault;
-  u64 execTime;
+  u8 fault = 0;
+  u64 execTime = 0;
+  if (isAfterWait)
+      goto avoid_starvation;
 waitQemu:
   while(!tarQemuPid){
 	  memset(buffer, '\0', sizeof(buffer));
@@ -2715,7 +2728,9 @@ waitQemu:
    *  because mutation is much more faster than perform a real test in full system mode.
    */
   u8 i = 0;
+avoid_starvation:
   if (!tarQemuPid) {
+      i = 0;
       while (i < parallel_qemu_num) {
           if(allQemus[i].handled){
               curQemu = &allQemus[i];
@@ -2723,9 +2738,12 @@ waitQemu:
           }
           i++;
       }
-      if (i >= parallel_qemu_num)
+      if (i >= parallel_qemu_num){
+          isAfterWait = 0;
           goto waitQemu; //HACK: wait again
+      }
   } else {
+      i = 0;
       while (i < parallel_qemu_num) {
           if(tarQemuPid == allQemus[i].pid){
               curQemu = &allQemus[i];
@@ -8525,6 +8543,7 @@ int main(int argc, char** argv) {
 
 #ifdef CONFIG_S2E
   no_forkserver = 1; // Fork server has been implemented in S2E.
+  isAfterWait = 0;
 #endif
 
   if (dumb_mode == 2 && no_forkserver)

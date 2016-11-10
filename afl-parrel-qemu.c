@@ -186,7 +186,7 @@ void PARAL_QEMU(InitQemuQueue)(void)
             allQemus[i].pid = pid;
             allQemus[i].start_us = 0;
             allQemus[i].stop_us = 0;
-            allQemus[i].handled = 0;
+            allQemus[i].handled = 1;
             allQemus[i].out_file = NULL;
             ReadArray[pid] = 1;
             allQemus[i].cur_queue = NULL;

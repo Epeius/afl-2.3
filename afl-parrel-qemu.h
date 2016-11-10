@@ -52,6 +52,7 @@ void PARAL_QEMU(setupTracebits) (void);
 
 
 extern void process_unhandled_qemus();
+extern u8 isAfterWait;
 
 // Wait for all the qemus until they are all free and collect their results
 #define WAIT_ALLQEMUS_FREE               \
@@ -66,6 +67,7 @@ extern void process_unhandled_qemus();
             }                   \
         }                   \
         process_unhandled_qemus();  \
+        isAfterWait = 1;           \
       } while (0)
 
 

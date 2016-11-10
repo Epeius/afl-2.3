@@ -2572,18 +2572,6 @@ static void check_qemu_tracebits(QemuInstance* qemu)
 {
     // avoid compiler accesses registers and cache.
     MEM_BARRIER();
-
-    if (!qemu->cur_queue)
-        PFATAL("current queue is NULL???");
-    struct queue_entry* _cur = (struct queue_entry*) (qemu->cur_queue);
-    /* OK, let's collect some stats about the performance of this test case.
-     This is used for fuzzing air time calculations in calculate_score(). */
-    _cur->exec_us = (qemu->stop_us - qemu->start_us);
-    _cur->bitmap_size = count_bytes(qemu->trace_bits);
-    _cur->handicap = (qemu->cur_stage == STAGE_CALIBRATE) ? 0 : queue_cycle -1;
-    _cur->cal_failed = 0;
-    _cur->exec_cksum = hash32(qemu->trace_bits, MAP_SIZE, HASH_CONST);
-
     // set the loop bucket
 #ifdef __x86_64__
     classify_counts((u64*)qemu->trace_bits);
@@ -3542,14 +3530,26 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
       queued_with_cov++;
     }
 
-#ifdef CONFIG_S2E
-    queue_top->exec_cksum = hash32(curQemu->trace_bits, MAP_SIZE, HASH_CONST);
-#else
+#ifndef CONFIG_S2E
     queue_top->exec_cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 #endif
 
 
 #ifdef CONFIG_S2E
+    /* Calculate average execution here to keep path with the update of queue_top. */
+    struct queue_entry * q_mod;
+    if (qemu->cur_stage == STAGE_CALIBRATE) {
+        if (!qemu->cur_queue)
+            PFATAL("current queue should be set for calibration");
+        q_mod = qemu->cur_queue;
+    } else {
+        q_mod = queue_top;
+    }
+    q_mod->exec_us = (qemu->stop_us - qemu->start_us);
+    q_mod->bitmap_size = count_bytes(qemu->trace_bits);
+    q_mod->handicap = (qemu->cur_stage == STAGE_CALIBRATE) ? 0 : queue_cycle -1;
+    q_mod->cal_failed = 0;
+    q_mod->exec_cksum = hash32(qemu->trace_bits, MAP_SIZE, HASH_CONST);
     /* Give up calibration when combining with symbex. */
 	total_cal_us += qemu->stop_us - qemu->start_us;
     total_cal_cycles += 1; // trick: regard current test as the calibration, so we add only 1
@@ -5074,7 +5074,7 @@ static u32 choose_block_len(u32 limit) {
 static u32 calculate_score(struct queue_entry* q) {
 
   u32 avg_exec_us = total_cal_us / total_cal_cycles;
-  u32 avg_bitmap_size = total_bitmap_size / total_bitmap_entries; ///FIXME: total_bitmap_entries can be 0
+  u32 avg_bitmap_size = total_bitmap_size / total_bitmap_entries;
   u32 perf_score = 100;
 
   /* Adjust score based on execution speed of this path, compared to the

@@ -2700,6 +2700,7 @@ static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cu
   int tarQemuPid = 0;
   u8 fault;
   u64 execTime;
+waitQemu:
   while(!tarQemuPid){
 	  memset(buffer, '\0', sizeof(buffer));
 	  if(read(qemu_quene_fd, buffer, FIFOBUFFERSIZE) == -1) // we should be blocked here so that we can get a free qemu
@@ -2721,6 +2722,8 @@ static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cu
           }
           i++;
       }
+      if (i >= parallel_qemu_num)
+          goto waitQemu; //HACK: wait again
   } else {
       while (i < parallel_qemu_num) {
           if(tarQemuPid == allQemus[i].pid){
@@ -2732,15 +2735,15 @@ static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cu
       if(curQemu->start_us){ // not the first run
           curQemu->stop_us = curQemu->start_us + execTime;
       }
+      if (i >= parallel_qemu_num)
+      // Assert target qemu id is available now.
+          FATAL("Cannot find the target qemu, quitting.");
   }
 
   curQemu->cur_queue = cur;
   curQemu->cur_stage = cur_stage;
   curQemu->fault = fault;
 
-  // Assert target qemu id is available now.
-  if (i >= parallel_qemu_num)
-	  FATAL("Cannot find the target qemu, quitting.");
 
   if (curQemu->start_us && !curQemu->handled)
 	  handle_onetestdone(curQemu); // Perform result analysis here!
@@ -3553,10 +3556,10 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
     /* Give up calibration when combining with symbex. */
 	total_cal_us += qemu->stop_us - qemu->start_us;
     total_cal_cycles += 1; // trick: regard current test as the calibration, so we add only 1
-	total_bitmap_size += ((struct queue_entry*)(qemu->cur_queue))->bitmap_size;
+	total_bitmap_size += q_mod->bitmap_size;
 	total_bitmap_entries++;
 
-	update_bitmap_score(qemu->cur_queue);
+	update_bitmap_score(q_mod);
 #else
     /* Try to calibrate inline; this also calls update_bitmap_score() when
        successful. */

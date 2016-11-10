@@ -2630,6 +2630,7 @@ void handle_onetestdone(QemuInstance* done_qemu) {
     //done_qemu->isfree = 1; // Mark this qemu as a free one
     done_qemu->cur_queue = NULL;
     done_qemu->handled = 1;
+    total_execs++;
     //show_stats();
     //OKF("end onetestdone.");
     return;

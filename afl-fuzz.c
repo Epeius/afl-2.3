@@ -2627,7 +2627,6 @@ void handle_onetestdone(QemuInstance* done_qemu) {
     //OKF("start onetestdone.");
     check_qemu_tracebits(done_qemu);
     do_extra_handles(done_qemu);
-    //done_qemu->isfree = 1; // Mark this qemu as a free one
     done_qemu->cur_queue = NULL;
     done_qemu->handled = 1;
     total_execs++;
@@ -2682,7 +2681,8 @@ void process_unhandled_qemus(void) {
                     tmp_qemu->fault = fault;
                     if (tmp_qemu->handled)
                         PFATAL("we don't want to rehandle a qemu!");
-                    handle_onetestdone(tmp_qemu);
+                    if (tmp_qemu && tmp_qemu->out_file)
+                        handle_onetestdone(tmp_qemu);
                     break;
                 }
                 i++;

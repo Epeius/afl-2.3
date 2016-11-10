@@ -45,6 +45,15 @@ extern u32 qemu_quene_fd;
 extern u8* ReadArray;
 extern pid_t stuck_helper_dir;
 //extern variable end
+#define QEMUEXECUTABLE "/home/binzhang/EPFL/s2e-build/qemu-release/i386-s2e-softmmu/qemu-system-i386"
+char *const qemu_argv[] ={"qemu-system-i386",
+        "-m", "128",
+        "-net", "none",
+        "-usbdevice", "tablet",
+        "-hda", "/home/binzhang/EPFL/images/debian.raw.s2e",
+        "-loadvm", "forkstate",
+        "-s2e-config-file", "/home/binzhang/EPFL/testfolder/forkstate.lua",
+        NULL};
 
 /*
 char *const stuckhelper_argv[] ={"qemu-system-i386",
@@ -57,7 +66,7 @@ char *const stuckhelper_argv[] ={"qemu-system-i386",
         "-s2e-config-file", "/home/epeius/work/DSlab.EPFL/FinalSubmitV2/testplace/forkstate_stuck_helper.lua",
         NULL};
 */
-char QEMUEXECUTABLE[256];
+char QEMUEXECUTABLE1[256];
 char qemu_argments[32][256];
         
 /*
@@ -80,7 +89,7 @@ void PARAL_QEMU(ParseQemuArgs)(char qemu_args[32][256], const char * config_file
 		else{
 			StrLine[strlen(StrLine)-1]='\0';
 			if (strstr(StrLine, "executable:")){
-				strcpy(QEMUEXECUTABLE, StrLine+sizeof("executable"));
+				strcpy(QEMUEXECUTABLE1, StrLine+sizeof("executable"));
 			} else if (strstr(StrLine, "memory:")){
 				strcpy(qemu_args[index++], "-m");
 				strcpy(qemu_args[index++], StrLine+sizeof("memory"));
@@ -171,12 +180,14 @@ void PARAL_QEMU(InitQemuQueue)(void)
             if (dup2(fd[1], CTRLPIPE(getpid()) + 1) < 0
                                 || dup2(fd[0], CTRLPIPE(getpid())) < 0) // Duplicate file descriptor before execv(), otherwise QEMU cannot access pipes forever.
                 exit(EXIT_FAILURE);
-            execv(QEMUEXECUTABLE, qemu_argments);
+            //execv(QEMUEXECUTABLE, qemu_argments);qemu_argv
+            execv(QEMUEXECUTABLE, qemu_argv);
         } else {
             allQemus[i].pid = pid;
             allQemus[i].start_us = 0;
             allQemus[i].stop_us = 0;
             allQemus[i].handled = 0;
+            allQemus[i].out_file = NULL;
             ReadArray[pid] = 1;
             allQemus[i].cur_queue = NULL;
             allQemus[i].cur_stage = 18; // Initial stage
@@ -189,9 +200,9 @@ void PARAL_QEMU(InitQemuQueue)(void)
                     || dup2(fd[0], CTRLPIPE(pid)) < 0)
                 PFATAL("dup2() failed");
             allQemus[i].ctrl_pipe = CTRLPIPE(pid) + 1;
+            sleep(10); // why not sleep for a while.
         }
         i++;
-        sleep(10); // why not sleep for a while.
     }
 }
 

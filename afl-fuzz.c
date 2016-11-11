@@ -66,7 +66,7 @@
    can hope... */
 
 #ifdef __linux__
-#  define HAVE_AFFINITY 1
+//#  define HAVE_AFFINITY 1
 #endif /* __linux__ */
 
 /* A toggle to export some variables when building as a library. Not very

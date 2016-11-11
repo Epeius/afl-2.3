@@ -67,6 +67,7 @@ extern u8 currentQemuAfterWait;
                 sleep(0.001); \
             }                   \
         }                   \
+        sleep(0.5);                \
         process_unhandled_qemus();  \
         isAfterWait = 1;           \
         currentQemuAfterWait = 0;   \

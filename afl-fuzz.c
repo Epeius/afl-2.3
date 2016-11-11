@@ -163,6 +163,7 @@ static s32 virgin_shm_id;             /* ID of the SHM region for virgin  */
 
 #ifdef CONFIG_S2E
 u8 isAfterWait;                      /* Flag marks after waiting all qemus */
+u8 currentQemuAfterWait;
 #endif
 
 static volatile u8 stop_soon,         /* Ctrl-C pressed?                  */
@@ -2712,14 +2713,20 @@ static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cu
   int tarQemuPid = 0;
   u8 fault = 0;
   u64 execTime = 0;
-  if (isAfterWait)
-      goto avoid_starvation;
-waitQemu:
+  if (isAfterWait){
+      curQemu = &allQemus[currentQemuAfterWait++];
+      if (currentQemuAfterWait == parallel_qemu_num) {
+          isAfterWait = 0;
+          currentQemuAfterWait = 0;
+      }
+      goto write;
+  }
+
   while(!tarQemuPid){
 	  memset(buffer, '\0', sizeof(buffer));
 	  if(read(qemu_quene_fd, buffer, FIFOBUFFERSIZE) == -1) // we should be blocked here so that we can get a free qemu
 		  if(errno == EAGAIN) //XXX: avoid interrupt
-			  break;
+			  continue;
 	  GETQUEUEITEM(buffer, tarQemuPid, fault, execTime);
   }
   /*
@@ -2728,37 +2735,21 @@ waitQemu:
    *  because mutation is much more faster than perform a real test in full system mode.
    */
   u8 i = 0;
-avoid_starvation:
-  if (!tarQemuPid) {
-      i = 0;
-      while (i < parallel_qemu_num) {
-          if(allQemus[i].handled){
-              curQemu = &allQemus[i];
-              break;
-          }
-          i++;
+  while (i < parallel_qemu_num) {
+      if(tarQemuPid == allQemus[i].pid){
+          curQemu = &allQemus[i];
+          break;
       }
-      if (i >= parallel_qemu_num){
-          isAfterWait = 0;
-          goto waitQemu; //HACK: wait again
-      }
-  } else {
-      i = 0;
-      while (i < parallel_qemu_num) {
-          if(tarQemuPid == allQemus[i].pid){
-              curQemu = &allQemus[i];
-              break;
-          }
-          i++;
-      }
-      if(curQemu->start_us){ // not the first run
-          curQemu->stop_us = curQemu->start_us + execTime;
-      }
-      if (i >= parallel_qemu_num)
-      // Assert target qemu id is available now.
-          FATAL("Cannot find the target qemu, quitting.");
+      i++;
   }
+  if(curQemu->start_us){ // not the first run
+      curQemu->stop_us = curQemu->start_us + execTime;
+  }
+  if (i >= parallel_qemu_num)
+  // Assert target qemu id is available now.
+      FATAL("Cannot find the target qemu, quitting.");
 
+write:
   curQemu->cur_queue = cur;
   curQemu->cur_stage = cur_stage;
   curQemu->fault = fault;
@@ -2768,7 +2759,7 @@ avoid_starvation:
 	  handle_onetestdone(curQemu); // Perform result analysis here!
 
   u8 tc_out_file[128];
-  sprintf(tc_out_file, "%s%s", allQemus[i].testcaseDir, basename(out_file));
+  sprintf(tc_out_file, "%s%s", curQemu->testcaseDir, basename(out_file));
 
   unlink (tc_out_file); // delete the previous qemu-specified test case
   s32 fd = open(tc_out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);

@@ -2653,6 +2653,10 @@ void handle_onetestdone(QemuInstance* done_qemu) {
 #define GETQUEUEITEM(_buffer, _pid, _fault, _exectime) \
     do { \
 		char* token = strtok(_buffer, "|"); \
+		if (!token) {                   \
+		    _pid = _fault = _exectime = 0; \
+		    break;                      \
+		}                           \
 		_pid        = atoi(token); \
 		token       = strtok(NULL, "|"); \
 		_fault      = atoi(token); \

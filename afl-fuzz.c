@@ -2725,9 +2725,11 @@ static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cu
 
   while(!tarQemuPid){
 	  memset(buffer, '\0', sizeof(buffer));
-	  if(read(qemu_quene_fd, buffer, FIFOBUFFERSIZE) == -1) // we should be blocked here so that we can get a free qemu
-		  if(errno == EAGAIN) //XXX: avoid interrupt
-			  continue;
+	  if(read(qemu_quene_fd, buffer, FIFOBUFFERSIZE) == -1) { // we should be blocked here so that we can get a free qemu
+		  //if(errno == EAGAIN) //XXX: avoid interrupt
+	      sleep(0.001);
+	      continue;
+	  }
 	  GETQUEUEITEM(buffer, tarQemuPid, fault, execTime);
   }
   /*
@@ -2749,6 +2751,9 @@ static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cu
   if (i >= parallel_qemu_num)
   // Assert target qemu id is available now.
       FATAL("Cannot find the target qemu, quitting.");
+  while(!ReadArray[curQemu->pid]) {
+      sleep(0.001);
+  }
 
 write:
   curQemu->cur_queue = cur;
@@ -3513,14 +3518,14 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   u8 res;
 #endif
 
-  if (fault == crash_mode) {
-
 #ifdef CONFIG_S2E
-    if (qemu->fault == FAULT_REDUNDANT) { // testcase is filtered
+    if (qemu->fault == FAULT_REDUNDANT) { // testcase is filtered, nothing needs to do
         return 0;
     }
-
 #endif
+
+  if (fault == crash_mode) {
+
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
 

@@ -2354,10 +2354,17 @@ static u8 run_target(char** argv) {
     s32 res;
     // tell current qemu instance we have a testcase
     char tmp[4];
-    tmp[0] = 'p';
-    tmp[1] = 'l';
-    tmp[2] = 'a';
-    tmp[3] = 'y';
+    if (curQemu->cover_new) {
+        tmp[0] = 'p';
+        tmp[1] = 'l';
+        tmp[2] = 'a';
+        tmp[3] = 'y';
+    } else {
+        tmp[0] = 'n';
+        tmp[1] = 'o';
+        tmp[2] = 'n';
+        tmp[3] = 'e';
+    }
     curQemu->start_us = get_cur_time_us();
     ReadArray[curQemu->pid] = 0;
     curQemu->handled = 0;
@@ -3524,6 +3531,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
 #ifdef CONFIG_S2E
     if (qemu->fault == FAULT_REDUNDANT) { // testcase is filtered, nothing needs to do
+        qemu->cover_new = 1;
         return 0;
     }
 #endif
@@ -3535,6 +3543,9 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
     if (!(hnb = has_new_bits(virgin_bits))) {
       if (crash_mode) total_crashes++;
+#ifdef CONFIG_S2E
+      qemu->cover_new = 0;
+#endif
       return 0;
     }    
 
@@ -3550,6 +3561,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 #endif /* ^!SIMPLE_FILES */
 
 #ifdef CONFIG_S2E
+    qemu->cover_new = 1;
     if (qemu->cur_stage != STAGE_CALIBRATE) // avoid repeating adding to queue at startup
 #endif
     add_to_queue(fn, len, 0);
@@ -5752,7 +5764,8 @@ static u8 fuzz_one(char** argv) {
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
 
-//XXX: How to add the following trick when combining with symbex??
+//TODO: Using significant byte offset collector to fill eff_map when combining with symbex.
+
 #ifndef CONFIG_S2E
     /* We also use this stage to pull off a simple trick: we identify
        bytes that seem to have no effect on the current execution path

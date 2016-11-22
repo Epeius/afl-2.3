@@ -45,7 +45,7 @@ extern u32 qemu_quene_fd;
 extern u8* ReadArray;
 extern pid_t stuck_helper_dir;
 //extern variable end
-#define QEMUEXECUTABLE "/home/binzhang/EPFL/s2e-build/qemu-release/i386-s2e-softmmu/qemu-system-i386"
+#define QEMUEXECUTABLE "/home/binzhang/EPFL/s2e-debug/qemu-debug/i386-s2e-softmmu/qemu-system-i386"
 char *const qemu_argv[] ={"qemu-system-i386",
         "-m", "128",
         "-net", "none",
@@ -191,6 +191,7 @@ void PARAL_QEMU(InitQemuQueue)(void)
             ReadArray[pid] = 1;
             allQemus[i].cur_queue = NULL;
             allQemus[i].cur_stage = 18; // Initial stage
+            allQemus[i].cover_new = 1; // initial to play
             u8* _tcDir = (u8*) malloc(128);
             sprintf(_tcDir, "/tmp/afltestcase/%d/", pid);
             if(access(_tcDir, F_OK))

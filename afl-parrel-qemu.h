@@ -39,6 +39,7 @@ typedef struct qemuInstance{
     void*       cur_queue;      /* Current queue file in all queues     */
     u8          cur_stage;      /* Which stage we are in                */
     u8          fault;          /* Fault type                           */
+    u8          cover_new;      /* Whether found sth. new               */
 }QemuInstance;
 
 // Set up ready share memory for qemu and afl.
@@ -57,7 +58,7 @@ extern u8 currentQemuAfterWait;
 
 // Wait for all the qemus until they are all free and collect their results
 #define WAIT_ALLQEMUS_FREE               \
-      do {                              \
+      do {       \
         int i = 0;                      \
         while (i < parallel_qemu_num) { \
             if(ReadArray[allQemus[i].pid]) \

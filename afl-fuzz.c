@@ -166,6 +166,11 @@ u8 isAfterWait;                      /* Flag marks after waiting all qemus */
 u8 currentQemuAfterWait;
 #endif
 
+#ifdef CONFIG_S2E
+u8*     g_eff_map = 0;                /* Global effctor map              */
+u32     g_eff_cnt   = 1;
+#endif
+
 static volatile u8 stop_soon,         /* Ctrl-C pressed?                  */
                    clear_screen = 1,  /* Window resized?                  */
                    child_timed_out;   /* Traced process timed out?        */
@@ -345,6 +350,19 @@ enum {
   /* 06 */ FAULT_REDUNDANT
 };
 
+
+/* Effector map setup. These macros calculate:
+
+   EFF_APOS      - position of a particular file offset in the map.
+   EFF_ALEN      - length of a map with a particular number of bytes.
+   EFF_SPAN_ALEN - map span for a sequence of bytes.
+
+ */
+
+#define EFF_APOS(_p)          ((_p) >> EFF_MAP_SCALE2)
+#define EFF_REM(_x)           ((_x) & ((1 << EFF_MAP_SCALE2) - 1))
+#define EFF_ALEN(_l)          (EFF_APOS(_l) + !!EFF_REM(_l))
+#define EFF_SPAN_ALEN(_p, _l) (EFF_APOS((_p) + (_l) - 1) - EFF_APOS(_p) + 1)
 
 /* Get unix time in milliseconds */
 
@@ -2614,7 +2632,21 @@ static void do_extra_handles(QemuInstance* qemu)
         case STAGE_FLIP1:
         case STAGE_FLIP2:
         case STAGE_FLIP4:
+            break;
         case STAGE_FLIP8:
+            if (qemu->cover_new == 1) {
+                // update global effector map
+                if (qemu->mod_off == -1)
+                    break;
+                else {
+                    if (!g_eff_map[EFF_APOS(qemu->mod_off)]) {
+                        g_eff_map[EFF_APOS(qemu->mod_off)] = 1;
+                        g_eff_cnt++;
+                        qemu->mod_off = -1; // reset
+                    }
+                    break;
+                }
+            }
         case STAGE_FLIP16:
         case STAGE_FLIP32:
         case STAGE_ARITH8:
@@ -2720,7 +2752,7 @@ void process_unhandled_qemus(void) {
  * then parse the corresponding testcase directory and throw testcase there.
  */
 //FIXME: bad goto
-static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cur_stage) {
+static void write_to_testcase(void* mem, u32 len, struct queue_entry* cur, u8 cur_stage, u32 off) {
   u8 buffer[FIFOBUFFERSIZE + 1];
   int tarQemuPid = 0;
   u8 fault = 0;
@@ -2774,6 +2806,9 @@ write:
 
   if (curQemu->start_us && !curQemu->handled)
 	  handle_onetestdone(curQemu); // Perform result analysis here!
+
+  if (cur_stage == STAGE_FLIP8)
+      curQemu->mod_off = off;
 
   u8 tc_out_file[128];
   sprintf(tc_out_file, "%s%s", curQemu->testcaseDir, basename(out_file));
@@ -3038,7 +3073,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   if (dumb_mode != 1 && !no_forkserver && !forksrv_pid)
     init_forkserver(argv);
 
-  write_to_testcase(use_mem, q->len, q, STAGE_CALIBRATE);
+  write_to_testcase(use_mem, q->len, q, STAGE_CALIBRATE, 0);
 
   fault = run_target(argv);
 
@@ -3531,7 +3566,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
 #ifdef CONFIG_S2E
     if (qemu->fault == FAULT_REDUNDANT) { // testcase is filtered, nothing needs to do
-        qemu->cover_new = 1;
+        qemu->cover_new = 2;
         return 0;
     }
 #endif
@@ -5002,7 +5037,7 @@ abort_trimming:
 #ifdef CONFIG_S2E
 /* Results analysis procedure is moved to write testcase when combining with symbex. */
 
-EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len, u8 stage) {
+EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len, u8 stage, u32 off) {
   if (post_handler) {
 
 	out_buf = post_handler(out_buf, &len);
@@ -5010,7 +5045,7 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len, u8 stage) {
 
   }
 
-  write_to_testcase(out_buf, len, NULL, stage);
+  write_to_testcase(out_buf, len, NULL, stage, off);
   u8 fault = run_target(argv);
 
   if (stop_soon) return 1;
@@ -5559,7 +5594,7 @@ static u8 fuzz_one(char** argv) {
     FLIP_BIT(out_buf, stage_cur);
 
 #ifdef CONFIG_S2E
-    if (common_fuzz_stuff(argv, out_buf, len, STAGE_FLIP1)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len, STAGE_FLIP1, 0)) goto abandon_entry;
 #else
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -5662,7 +5697,7 @@ static u8 fuzz_one(char** argv) {
     FLIP_BIT(out_buf, stage_cur + 1);
 
 #ifdef CONFIG_S2E
-    if (common_fuzz_stuff(argv, out_buf, len, STAGE_FLIP2)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len, STAGE_FLIP2, 0)) goto abandon_entry;
 #else
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -5699,7 +5734,7 @@ static u8 fuzz_one(char** argv) {
     FLIP_BIT(out_buf, stage_cur + 3);
 
 #ifdef CONFIG_S2E
-    if (common_fuzz_stuff(argv, out_buf, len, STAGE_FLIP4)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len, STAGE_FLIP4, 0)) goto abandon_entry;
 #else
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -5720,28 +5755,21 @@ static u8 fuzz_one(char** argv) {
   stage_finds[STAGE_FLIP4]  += new_hit_cnt - orig_hit_cnt;
   stage_cycles[STAGE_FLIP4] += stage_max;
 
-  /* Effector map setup. These macros calculate:
-
-     EFF_APOS      - position of a particular file offset in the map.
-     EFF_ALEN      - length of a map with a particular number of bytes.
-     EFF_SPAN_ALEN - map span for a sequence of bytes.
-
-   */
-
-#define EFF_APOS(_p)          ((_p) >> EFF_MAP_SCALE2)
-#define EFF_REM(_x)           ((_x) & ((1 << EFF_MAP_SCALE2) - 1))
-#define EFF_ALEN(_l)          (EFF_APOS(_l) + !!EFF_REM(_l))
-#define EFF_SPAN_ALEN(_p, _l) (EFF_APOS((_p) + (_l) - 1) - EFF_APOS(_p) + 1)
-
   /* Initialize effector map for the next step (see comments below). Always
      flag first and last byte as doing something. */
 
   eff_map    = ck_alloc(EFF_ALEN(len));
+#ifdef CONFIG_S2E
+  g_eff_map  = eff_map; // bind to local effector map
+#endif
   eff_map[0] = 1;
 
   if (EFF_APOS(len - 1) != 0) {
     eff_map[EFF_APOS(len - 1)] = 1;
     eff_cnt++;
+#ifdef CONFIG_S2E
+    g_eff_cnt++;
+#endif
   }
 
   /* Walking byte. */
@@ -5759,7 +5787,7 @@ static u8 fuzz_one(char** argv) {
     out_buf[stage_cur] ^= 0xFF;
 
 #ifdef CONFIG_S2E
-    if (common_fuzz_stuff(argv, out_buf, len, STAGE_FLIP8)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len, STAGE_FLIP8, stage_cur)) goto abandon_entry;
 #else
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -5795,8 +5823,28 @@ static u8 fuzz_one(char** argv) {
 
   }
 
-  //XXX:
-#ifndef CONFIG_S2E
+#ifdef CONFIG_S2E
+  WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
+
+  // Process the same logic with afl
+  if (g_eff_cnt != EFF_ALEN(len) &&
+      g_eff_cnt * 100 / EFF_ALEN(len) > EFF_MAX_PERC) {
+
+     memset(eff_map, 1, EFF_ALEN(len));
+
+     blocks_eff_select += EFF_ALEN(len);
+
+   } else {
+
+     blocks_eff_select += g_eff_cnt;
+
+   }
+
+
+   blocks_eff_total += EFF_ALEN(len);
+
+#else
+
   /* If the effector map is more than EFF_MAX_PERC dense, just flag the
      whole thing as worth fuzzing, since we wouldn't be saving much time
      anyway. */
@@ -5814,9 +5862,8 @@ static u8 fuzz_one(char** argv) {
 
   }
 
+
   blocks_eff_total += EFF_ALEN(len);
-#else
-  WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
 #endif
   new_hit_cnt = queued_paths + unique_crashes;
 
@@ -5836,21 +5883,19 @@ static u8 fuzz_one(char** argv) {
 
   for (i = 0; i < len - 1; i++) {
 
-//XXX: no effector map when combining with symbex
-#ifndef CONFIG_S2E
     /* Let's consult the effector map... */
 
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
       stage_max--;
       continue;
     }
-#endif
+
     stage_cur_byte = i;
 
     *(u16*)(out_buf + i) ^= 0xFFFF;
 
 #ifdef CONFIG_S2E
-    if (common_fuzz_stuff(argv, out_buf, len, STAGE_FLIP16)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len, STAGE_FLIP16, 0)) goto abandon_entry;
 #else
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -5883,21 +5928,18 @@ static u8 fuzz_one(char** argv) {
 
   for (i = 0; i < len - 3; i++) {
 
-//XXX: no effector map when combining with symbex
-#ifndef CONFIG_S2E
     /* Let's consult the effector map... */
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
         !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
       stage_max--;
       continue;
     }
-#endif
     stage_cur_byte = i;
 
     *(u32*)(out_buf + i) ^= 0xFFFFFFFF;
 
 #ifdef CONFIG_S2E
-    if (common_fuzz_stuff(argv, out_buf, len, STAGE_FLIP32)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len, STAGE_FLIP32, 0)) goto abandon_entry;
 #else
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -5937,15 +5979,12 @@ skip_bitflip:
 
     u8 orig = out_buf[i];
 
-//XXX: no effector map when combining with symbex
-#ifndef CONFIG_S2E
     /* Let's consult the effector map... */
 
     if (!eff_map[EFF_APOS(i)]) {
       stage_max -= 2 * ARITH_MAX;
       continue;
     }
-#endif
 
     stage_cur_byte = i;
 
@@ -5962,7 +6001,7 @@ skip_bitflip:
         out_buf[i] = orig + j;
 
 #ifdef CONFIG_S2E
-        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH8)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH8, 0)) goto abandon_entry;
 #else
         if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -5978,7 +6017,7 @@ skip_bitflip:
         out_buf[i] = orig - j;
 
 #ifdef CONFIG_S2E
-        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH8)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH8, 0)) goto abandon_entry;
 #else
         if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6015,15 +6054,12 @@ skip_bitflip:
 
     u16 orig = *(u16*)(out_buf + i);
 
-//XXX: no effector map when combining with symbex
-#ifndef CONFIG_S2E
     /* Let's consult the effector map... */
 
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
       stage_max -= 4 * ARITH_MAX;
       continue;
     }
-#endif
 
     stage_cur_byte = i;
 
@@ -6047,7 +6083,7 @@ skip_bitflip:
         *(u16*)(out_buf + i) = orig + j;
 
 #ifdef CONFIG_S2E
-        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH16)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH16, 0)) goto abandon_entry;
 #else
         if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6061,7 +6097,7 @@ skip_bitflip:
         *(u16*)(out_buf + i) = orig - j;
 
 #ifdef CONFIG_S2E
-        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH16)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH16, 0)) goto abandon_entry;
 #else
         if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6080,7 +6116,7 @@ skip_bitflip:
         *(u16*)(out_buf + i) = SWAP16(SWAP16(orig) + j);
 
 #ifdef CONFIG_S2E
-        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH16)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH16, 0)) goto abandon_entry;
 #else
         if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6094,7 +6130,7 @@ skip_bitflip:
         *(u16*)(out_buf + i) = SWAP16(SWAP16(orig) - j);
 
 #ifdef CONFIG_S2E
-        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH16)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH16, 0)) goto abandon_entry;
 #else
         if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6132,8 +6168,6 @@ skip_bitflip:
 
     u32 orig = *(u32*)(out_buf + i);
 
-//XXX: no effector map when combining with symbex
-#ifndef CONFIG_S2E
     /* Let's consult the effector map... */
 
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
@@ -6141,7 +6175,6 @@ skip_bitflip:
       stage_max -= 4 * ARITH_MAX;
       continue;
     }
-#endif
 
     stage_cur_byte = i;
 
@@ -6163,7 +6196,7 @@ skip_bitflip:
         *(u32*)(out_buf + i) = orig + j;
 
 #ifdef CONFIG_S2E
-        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH32)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH32, 0)) goto abandon_entry;
 #else
         if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6177,7 +6210,7 @@ skip_bitflip:
         *(u32*)(out_buf + i) = orig - j;
 
 #ifdef CONFIG_S2E
-        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH32)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH32, 0)) goto abandon_entry;
 #else
         if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6195,7 +6228,7 @@ skip_bitflip:
         *(u32*)(out_buf + i) = SWAP32(SWAP32(orig) + j);
 
 #ifdef CONFIG_S2E
-        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH32)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH32, 0)) goto abandon_entry;
 #else
         if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6209,7 +6242,7 @@ skip_bitflip:
         *(u32*)(out_buf + i) = SWAP32(SWAP32(orig) - j);
 
 #ifdef CONFIG_S2E
-        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH32)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, STAGE_ARITH32, 0)) goto abandon_entry;
 #else
         if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6253,15 +6286,12 @@ skip_arith:
 
     u8 orig = out_buf[i];
 
-//XXX: no effector map when combining with symbex
-#ifndef CONFIG_S2E
     /* Let's consult the effector map... */
 
     if (!eff_map[EFF_APOS(i)]) {
       stage_max -= sizeof(interesting_8);
       continue;
     }
-#endif
 
     stage_cur_byte = i;
 
@@ -6279,7 +6309,7 @@ skip_arith:
       out_buf[i] = interesting_8[j];
 
 #ifdef CONFIG_S2E
-      if (common_fuzz_stuff(argv, out_buf, len, STAGE_INTEREST8)) goto abandon_entry;
+      if (common_fuzz_stuff(argv, out_buf, len, STAGE_INTEREST8, 0)) goto abandon_entry;
 #else
       if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6315,15 +6345,12 @@ skip_arith:
 
     u16 orig = *(u16*)(out_buf + i);
 
-//XXX: no effector map when combining with symbex
-#ifndef CONFIG_S2E
     /* Let's consult the effector map... */
 
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
       stage_max -= sizeof(interesting_16);
       continue;
     }
-#endif
 
     stage_cur_byte = i;
 
@@ -6343,7 +6370,7 @@ skip_arith:
         *(u16*)(out_buf + i) = interesting_16[j];
 
 #ifdef CONFIG_S2E
-      if (common_fuzz_stuff(argv, out_buf, len, STAGE_INTEREST16)) goto abandon_entry;
+      if (common_fuzz_stuff(argv, out_buf, len, STAGE_INTEREST16, 0)) goto abandon_entry;
 #else
       if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6360,7 +6387,7 @@ skip_arith:
 
         *(u16*)(out_buf + i) = SWAP16(interesting_16[j]);
 #ifdef CONFIG_S2E
-      if (common_fuzz_stuff(argv, out_buf, len, STAGE_INTEREST16)) goto abandon_entry;
+      if (common_fuzz_stuff(argv, out_buf, len, STAGE_INTEREST16, 0)) goto abandon_entry;
 #else
       if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6398,8 +6425,6 @@ skip_arith:
 
     u32 orig = *(u32*)(out_buf + i);
 
-//XXX: no effector map when combining with symbex
-#ifndef CONFIG_S2E
     /* Let's consult the effector map... */
 
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
@@ -6407,7 +6432,6 @@ skip_arith:
       stage_max -= sizeof(interesting_32) >> 1;
       continue;
     }
-#endif
 
     stage_cur_byte = i;
 
@@ -6427,7 +6451,7 @@ skip_arith:
         *(u32*)(out_buf + i) = interesting_32[j];
 
 #ifdef CONFIG_S2E
-      if (common_fuzz_stuff(argv, out_buf, len, STAGE_INTEREST32)) goto abandon_entry;
+      if (common_fuzz_stuff(argv, out_buf, len, STAGE_INTEREST32, 0)) goto abandon_entry;
 #else
       if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6444,7 +6468,7 @@ skip_arith:
 
         *(u32*)(out_buf + i) = SWAP32(interesting_32[j]);
 #ifdef CONFIG_S2E
-      if (common_fuzz_stuff(argv, out_buf, len, STAGE_INTEREST32)) goto abandon_entry;
+      if (common_fuzz_stuff(argv, out_buf, len, STAGE_INTEREST32, 0)) goto abandon_entry;
 #else
       if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6518,7 +6542,7 @@ skip_interest:
       memcpy(out_buf + i, extras[j].data, last_len);
 
 #ifdef CONFIG_S2E
-      if (common_fuzz_stuff(argv, out_buf, len, STAGE_EXTRAS_UO)) goto abandon_entry;
+      if (common_fuzz_stuff(argv, out_buf, len, STAGE_EXTRAS_UO, 0)) goto abandon_entry;
 #else
       if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -6570,7 +6594,7 @@ skip_interest:
       memcpy(ex_tmp + i + extras[j].len, out_buf + i, len - i);
 
 #ifdef CONFIG_S2E
-      if (common_fuzz_stuff(argv, ex_tmp, len + extras[j].len, STAGE_EXTRAS_UI)) {
+      if (common_fuzz_stuff(argv, ex_tmp, len + extras[j].len, STAGE_EXTRAS_UI, 0)) {
 #else
       if (common_fuzz_stuff(argv, ex_tmp, len + extras[j].len)) {
 #endif
@@ -6634,7 +6658,7 @@ skip_user_extras:
       memcpy(out_buf + i, a_extras[j].data, last_len);
 
 #ifdef CONFIG_S2E
-      if (common_fuzz_stuff(argv, out_buf, len, STAGE_EXTRAS_AO)) goto abandon_entry;
+      if (common_fuzz_stuff(argv, out_buf, len, STAGE_EXTRAS_AO, 0)) goto abandon_entry;
 #else
       if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 #endif
@@ -7078,10 +7102,10 @@ havoc_stage:
 #ifdef CONFIG_S2E
     // Havoc and splice must be split in order to collect data correctly.
     if (!splice_cycle) {
-        if (common_fuzz_stuff(argv, out_buf, temp_len, STAGE_HAVOC))
+        if (common_fuzz_stuff(argv, out_buf, temp_len, STAGE_HAVOC, 0))
             goto abandon_entry;
     } else {
-        if (common_fuzz_stuff(argv, out_buf, temp_len, STAGE_SPLICE))
+        if (common_fuzz_stuff(argv, out_buf, temp_len, STAGE_SPLICE, 0))
             goto abandon_entry;
     }
 #else
@@ -7238,6 +7262,11 @@ abandon_entry:
   if (in_buf != orig_in) ck_free(in_buf);
   ck_free(out_buf);
   ck_free(eff_map);
+
+#ifdef CONFIG_S2E
+  g_eff_map = 0;
+  g_eff_cnt = 1;
+#endif
 
   return ret_val;
 

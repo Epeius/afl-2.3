@@ -39,6 +39,7 @@ typedef struct qemuInstance{
     void*       cur_queue;      /* Current queue file in all queues     */
     u8          cur_stage;      /* Which stage we are in                */
     u8          fault;          /* Fault type                           */
+    s32         mod_off;        /* Modified offset                      */
     u8          cover_new;      /* Whether found sth. new               */
 }QemuInstance;
 
@@ -50,7 +51,6 @@ void PARAL_QEMU(InitQemuQueue) (void);
 
 // Set up trace-bits bitmap for each qemu instance.
 void PARAL_QEMU(setupTracebits) (void);
-
 
 extern void process_unhandled_qemus();
 extern u8 isAfterWait;

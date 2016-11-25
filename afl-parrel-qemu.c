@@ -183,6 +183,7 @@ void PARAL_QEMU(InitQemuQueue)(void)
             //execv(QEMUEXECUTABLE, qemu_argments);qemu_argv
             execv(QEMUEXECUTABLE, qemu_argv);
         } else {
+            //TODO: remove this initial to a macro
             allQemus[i].pid = pid;
             allQemus[i].start_us = 0;
             allQemus[i].stop_us = 0;
@@ -192,6 +193,7 @@ void PARAL_QEMU(InitQemuQueue)(void)
             allQemus[i].cur_queue = NULL;
             allQemus[i].cur_stage = 18; // Initial stage
             allQemus[i].cover_new = 1; // initial to play
+            allQemus[i].mod_off = -1;
             u8* _tcDir = (u8*) malloc(128);
             sprintf(_tcDir, "/tmp/afltestcase/%d/", pid);
             if(access(_tcDir, F_OK))
@@ -277,4 +279,3 @@ void PARAL_QEMU(setupTracebits) (void)
         i++;
     }
 }
-

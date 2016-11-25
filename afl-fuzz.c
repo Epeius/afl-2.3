@@ -2372,16 +2372,29 @@ static u8 run_target(char** argv) {
     s32 res;
     // tell current qemu instance we have a testcase
     char tmp[4];
-    if (curQemu->cover_new) {
-        tmp[0] = 'p';
-        tmp[1] = 'l';
-        tmp[2] = 'a';
-        tmp[3] = 'y';
-    } else {
+
+    switch (curQemu->cover_new) {
+    case 0: // not reported redundant, but touches nothing new
         tmp[0] = 'n';
         tmp[1] = 'o';
         tmp[2] = 'n';
         tmp[3] = 'e';
+        break;
+    case 1: // find new
+        tmp[0] = 'p';
+        tmp[1] = 'l';
+        tmp[2] = 'a';
+        tmp[3] = 'y';
+        break;
+    case 2: // reported as redundant
+        tmp[0] = 'r';
+        tmp[1] = 'e';
+        tmp[2] = 'd';
+        tmp[3] = 'u';
+        break;
+    default:
+        PFATAL("Unknown cover_new flag: %d", curQemu->cover_new);
+        break; // never reach here
     }
     curQemu->start_us = get_cur_time_us();
     ReadArray[curQemu->pid] = 0;

@@ -92,6 +92,9 @@ EXP_ST u8 *in_dir,                    /* Input directory with test cases  */
           *doc_path,                  /* Path to documentation dir        */
           *target_path,               /* Path to target binary            */
           *orig_cmdline;              /* Original command line            */
+#ifdef CONFIG_S2E
+EXP_ST u8 *symbex_dir;                /* Directory for symbex testcases   */
+#endif
 
 EXP_ST u32 exec_tmout = EXEC_TIMEOUT; /* Configurable exec timeout (ms)   */
 EXP_ST u64 mem_limit = MEM_LIMIT;     /* Memory cap for child (MB)        */
@@ -327,7 +330,8 @@ enum {
   /* 15 */ STAGE_HAVOC,
   /* 16 */ STAGE_SPLICE,
   /* 17 */ STAGE_CALIBRATE, // Extra stage to make fuzz-symbex easy
-  /* 18 */ STAGE_SYNC    // Extra stage to make fuzz-symbex easy
+  /* 18 */ STAGE_SYNC,    // Extra stage to make fuzz-symbex easy
+  /* 19 */ STAGE_READSYMBEX // Read symbex testcases
 };
 
 /* Stage value types */
@@ -744,7 +748,11 @@ static void mark_as_det_done(struct queue_entry* q) {
 
   fn = alloc_printf("%s/queue/.state/deterministic_done/%s", out_dir, fn + 1);
 
+#ifdef CONFIG_S2E
+  fd = open(fn, O_WRONLY | O_CREAT, 0600);
+#else
   fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+#endif
   if (fd < 0) PFATAL("Unable to create '%s'", fn);
   close(fd);
 
@@ -2673,6 +2681,7 @@ static void do_extra_handles(QemuInstance* qemu)
         case STAGE_EXTRAS_AO:
         case STAGE_HAVOC:
         case STAGE_SPLICE:
+        case STAGE_READSYMBEX:
             break;
         default:
             FATAL("Cannot be here");
@@ -7288,6 +7297,83 @@ abandon_entry:
 }
 
 #ifdef CONFIG_S2E
+static void read_symbex_testcases(char ** argv) {
+    DIR* symdir;
+    symdir = opendir(symbex_dir);
+    if (!symdir) PFATAL("Unable to open '%s'", symbex_dir);
+
+    cur_depth = 0;
+
+    struct dirent* qd_ent;
+    u8 *qd_synced_path;
+
+    while ((qd_ent = readdir(symdir))) {
+
+        u8* path;
+        s32 fd;
+        struct stat st;
+
+
+        path = alloc_printf("%s/%s", symbex_dir, qd_ent->d_name);
+
+        /* Allow this to fail in case the other fuzzer is resuming or so... */
+
+        fd = open(path, O_RDONLY);
+
+        if (fd < 0) {
+            ck_free(path);
+            continue;
+        }
+
+        if (fstat(fd, &st))
+            PFATAL("fstat() failed");
+
+        /* This also takes care of . and .. */
+
+        if (!S_ISREG(st.st_mode) || !st.st_size ) {
+
+          ck_free(path);
+          close(fd);
+          continue;
+
+        }
+
+        /* Ignore zero-sized or oversized files. */
+
+        if (st.st_size && st.st_size <= MAX_FILE) {
+
+            u8 fault;
+            u8* mem = mmap(0, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+
+            if (mem == MAP_FAILED)
+                PFATAL("Unable to mmap '%s'", path);
+
+            /* See what happens. We rely on save_if_interesting() to catch major
+             errors and save the test case. */
+            write_to_testcase(mem, st.st_size, NULL, STAGE_READSYMBEX, 0);
+            fault = run_target(argv);
+
+            if (stop_soon)
+                return;
+
+            syncing_party = 0;
+
+            munmap(mem, st.st_size);
+
+        }
+
+        if (unlink(path)) PFATAL("Unable to delete '%s'", path); // delete file to avoid repeating testing
+
+        ck_free(path);
+        close(fd);
+
+    }
+
+}
+#endif
+
+
+#ifdef CONFIG_S2E
 
 /* Currently cluster is not supported! */
 static void sync_fuzzers(char** argv) {
@@ -8388,7 +8474,7 @@ int main(int argc, char** argv) {
   srandom(tv.tv_sec ^ tv.tv_usec ^ getpid());
 
 #ifdef CONFIG_S2E
-  while ((opt = getopt(argc, argv, "+i:o:f:m:t:T:dnCB:S:M:x:QP:H")) > 0) // -P(int): number of Multi-S2E. -H: use symbex to assit fuzzing.
+  while ((opt = getopt(argc, argv, "+i:o:s:f:m:t:T:dnCB:S:M:x:QP:H")) > 0) // -P(int): number of Multi-S2E. -H: use symbex to assit fuzzing.
 #else
   while ((opt = getopt(argc, argv, "+i:o:f:m:t:T:dnCB:S:M:x:Q")) > 0)
 #endif
@@ -8408,6 +8494,13 @@ int main(int argc, char** argv) {
         if (out_dir) FATAL("Multiple -o options not supported");
         out_dir = optarg;
         break;
+
+#ifdef CONFIG_S2E
+      case 's': /* symbex dir */
+          if (symbex_dir) FATAL("Multiple -s options not supported");
+          symbex_dir = optarg;
+          break;
+#endif
 
       case 'M': { /* master sync ID */
 
@@ -8580,6 +8673,7 @@ int main(int argc, char** argv) {
 
 #ifdef CONFIG_S2E
   if (!out_file) FATAL("Outfile must be specified when combining with symbex!");
+  if (!symbex_dir) FATAL("Symbex testcase directory must be specified when combining with symbex!");
 #endif
 
   if (optind == argc || !in_dir || !out_dir) usage(argv[0]);
@@ -8761,6 +8855,11 @@ int main(int argc, char** argv) {
 
     queue_cur = queue_cur->next;
     current_entry++;
+
+#ifdef CONFIG_S2E
+    read_symbex_testcases(use_argv);
+    WAIT_ALLQEMUS_FREE;
+#endif
 
   }
 

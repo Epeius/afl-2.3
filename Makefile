@@ -22,6 +22,9 @@ HELPER_PATH = $(PREFIX)/lib/afl
 DOC_PATH    = $(PREFIX)/share/doc/afl
 MISC_PATH   = $(PREFIX)/share/afl
 
+CURRENT_PATH = $(shell pwd)
+SRC_PATH    := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
+
 CONFIG_S2E  = 1
 
 # PROGS intentionally omit afl-as, which gets installed elsewhere.
@@ -29,11 +32,12 @@ CONFIG_S2E  = 1
 PROGS       = afl-gcc afl-fuzz afl-showmap afl-tmin afl-gotcpu afl-analyze
 SH_PROGS    = afl-plot afl-cmin afl-whatsup
 
-#CFLAGS     ?= -O3 -funroll-loops
-CFLAGS     ?= -funroll-loops -DDEBUG
+CFLAGS     ?= -O3 -funroll-loops
+#CFLAGS     ?= -funroll-loops -DDEBUG
 ifdef CONFIG_S2E
 CFLAGS     += -DCONFIG_S2E
 endif
+#-pg -ggdb
 CFLAGS     += -Wall -D_FORTIFY_SOURCE=2 -g -Wno-pointer-sign \
 	      -DAFL_PATH=\"$(HELPER_PATH)\" -DDOC_PATH=\"$(DOC_PATH)\" \
 	      -DBIN_PATH=\"$(BIN_PATH)\"
@@ -48,13 +52,18 @@ else
   TEST_CC   = afl-clang
 endif
 
-COMM_HDR    = alloc-inl.h config.h debug.h types.h
+COMM_HDR    = $(SRC_PATH)/alloc-inl.h $(SRC_PATH)/config.h $(SRC_PATH)/debug.h $(SRC_PATH)/types.h
 
 all: test_x86 $(PROGS) afl-as test_build all_done
 
 ifndef AFL_NO_X86
 
 test_x86:
+ifeq "$(CURRENT_PATH)" "$(SRC_PATH)"
+	@echo "Don't compile in the source code!"
+	@exit 1
+endif
+	@echo $(SRC_PATH)
 	@echo "[*] Checking for the ability to compile x86 code..."
 	@echo 'main() { __asm__("xorb %al, %al"); }' | $(CC) -w -x c - -o .test || ( echo; echo "Oops, looks like your compiler can't generate x86 code."; echo; echo "Don't panic! You can use the LLVM or QEMU mode, but see docs/INSTALL first."; echo "(To ignore this error, set AFL_NO_X86=1 and try again.)"; echo; exit 1 )
 	@rm -f .test
@@ -67,39 +76,39 @@ test_x86:
 
 endif
 
-afl-gcc: afl-gcc.c $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
+afl-gcc: $(SRC_PATH)/afl-gcc.c $(COMM_HDR) | test_x86
+	$(CC) $(CFLAGS) $(SRC_PATH)/$@.c -o $@ $(LDFLAGS)
 	set -e; for i in afl-g++ afl-clang afl-clang++; do ln -sf afl-gcc $$i; done
 
-afl-as: afl-as.c afl-as.h $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
+afl-as: $(SRC_PATH)/afl-as.c $(SRC_PATH)/afl-as.h $(COMM_HDR) | test_x86
+	$(CC) $(CFLAGS) $(SRC_PATH)/$@.c -o $@ $(LDFLAGS)
 	ln -sf afl-as as
 
 ifdef CONFIG_S2E
-afl-fuzz: afl-fuzz.c $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) $@.c afl-parrel-qemu.c -o $@ $(LDFLAGS)
+afl-fuzz: $(SRC_PATH)/afl-fuzz.c $(COMM_HDR) | test_x86
+	$(CC) $(CFLAGS) $(SRC_PATH)/$@.c $(SRC_PATH)/afl-parrel-qemu.c -o $@ $(LDFLAGS)
 else
-afl-fuzz: afl-fuzz.c $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
+afl-fuzz: $(SRC_PATH)/afl-fuzz.c $(COMM_HDR) | test_x86
+	$(CC) $(CFLAGS) $(SRC_PATH)/$@.c -o $@ $(LDFLAGS)
 endif
 
-afl-showmap: afl-showmap.c $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
+afl-showmap: $(SRC_PATH)/afl-showmap.c $(COMM_HDR) | test_x86
+	$(CC) $(CFLAGS) $(SRC_PATH)/$@.c -o $@ $(LDFLAGS)
 
-afl-tmin: afl-tmin.c $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
+afl-tmin: $(SRC_PATH)/afl-tmin.c $(COMM_HDR) | test_x86
+	$(CC) $(CFLAGS) $(SRC_PATH)/$@.c -o $@ $(LDFLAGS)
 
-afl-analyze: afl-analyze.c $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
+afl-analyze: $(SRC_PATH)/afl-analyze.c $(COMM_HDR) | test_x86
+	$(CC) $(CFLAGS) $(SRC_PATH)/$@.c -o $@ $(LDFLAGS)
 
-afl-gotcpu: afl-gotcpu.c $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
+afl-gotcpu: $(SRC_PATH)/afl-gotcpu.c $(COMM_HDR) | test_x86
+	$(CC) $(CFLAGS) $(SRC_PATH)/$@.c -o $@ $(LDFLAGS)
 
 ifndef AFL_NO_X86
 
 test_build: afl-gcc afl-as afl-showmap
 	@echo "[*] Testing the CC wrapper and instrumentation output..."
-	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) $(CFLAGS) test-instr.c -o test-instr $(LDFLAGS)
+	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) $(CFLAGS) $(SRC_PATH)/test-instr.c -o test-instr $(LDFLAGS)
 	echo 0 | ./afl-showmap -m none -q -o .test-instr0 ./test-instr
 	echo 1 | ./afl-showmap -m none -q -o .test-instr1 ./test-instr
 	@rm -f test-instr
@@ -123,10 +132,10 @@ all_done: test_build
 
 clean:
 	rm -f $(PROGS) afl-as as afl-g++ afl-clang afl-clang++ *.o *~ a.out core core.[1-9][0-9]* *.stackdump test .test test-instr .test-instr0 .test-instr1 qemu_mode/qemu-2.3.0.tar.bz2 afl-qemu-trace
-	rm -rf out_dir qemu_mode/qemu-2.3.0
-	$(MAKE) -C llvm_mode clean
-	$(MAKE) -C libdislocator clean
-	$(MAKE) -C libtokencap clean
+	rm -rf out_dir $(SRC_PATH)/qemu_mode/qemu-2.3.0
+	$(MAKE) -C $(SRC_PATH)/llvm_mode clean
+	$(MAKE) -C $(SRC_PATH)/libdislocator clean
+	$(MAKE) -C $(SRC_PATH)/libtokencap clean
 
 install: all
 	mkdir -p -m 755 $${DESTDIR}$(BIN_PATH) $${DESTDIR}$(HELPER_PATH) $${DESTDIR}$(DOC_PATH) $${DESTDIR}$(MISC_PATH)

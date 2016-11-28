@@ -8673,7 +8673,7 @@ int main(int argc, char** argv) {
 
 #ifdef CONFIG_S2E
   if (!out_file) FATAL("Outfile must be specified when combining with symbex!");
-  if (!symbex_dir) FATAL("Symbex testcase directory must be specified when combining with symbex!");
+  if (!symbex_dir) ACTF("Symbex testcase directory must be specified when combining with symbex!");
 #endif
 
   if (optind == argc || !in_dir || !out_dir) usage(argv[0]);
@@ -8857,8 +8857,10 @@ int main(int argc, char** argv) {
     current_entry++;
 
 #ifdef CONFIG_S2E
-    read_symbex_testcases(use_argv);
-    WAIT_ALLQEMUS_FREE;
+    if(symbex_dir) {
+        read_symbex_testcases(use_argv);
+        WAIT_ALLQEMUS_FREE;
+    }
 #endif
 
   }

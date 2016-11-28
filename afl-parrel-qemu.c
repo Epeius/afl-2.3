@@ -43,37 +43,17 @@ extern u8 parallel_qemu_num;
 extern QemuInstance * allQemus;
 extern u32 qemu_quene_fd;
 extern u8* ReadArray;
-extern pid_t stuck_helper_dir;
 //extern variable end
-#define QEMUEXECUTABLE "/home/binzhang/EPFL/s2e-debug/qemu-debug/i386-s2e-softmmu/qemu-system-i386"
-char *const qemu_argv[] ={"qemu-system-i386",
-        "-m", "128",
-        "-net", "none",
-        "-usbdevice", "tablet",
-        "-hda", "/home/binzhang/EPFL/images/debian.raw.s2e",
-        "-loadvm", "forkstate",
-        "-s2e-config-file", "/home/binzhang/EPFL/testfolder/forkstate.lua",
-        NULL};
 
-/*
-char *const stuckhelper_argv[] ={"qemu-system-i386",
-        "-m", "128",
-        "-net", "none",
-        "-usbdevice", "tablet",
-        "-monitor", "stdio",
-        "-hda", "/home/epeius/work/DSlab.EPFL/FinalTest/s2ebuild/images/debian.raw.s2e",
-        "-loadvm", "forkstate_stuck_helper",
-        "-s2e-config-file", "/home/epeius/work/DSlab.EPFL/FinalSubmitV2/testplace/forkstate_stuck_helper.lua",
-        NULL};
-*/
-char QEMUEXECUTABLE1[256];
-char qemu_argments[32][256];
+char QEMUEXECUTABLE[256];
+char *qemu_argments[32];
         
 /*
  * Parse qemu arguments for afl.
  */
-void PARAL_QEMU(ParseQemuArgs)(char qemu_args[32][256], const char * config_filename)
+void PARAL_QEMU(ParseQemuArgs)(char *qemu_args[32], const char * config_filename)
 {
+    qemu_args[0] = (char*)malloc(32);
 	strcpy(qemu_args[0], "qemu-system-i386");
 	FILE *config_fp;
 	char StrLine[1024];
@@ -89,27 +69,36 @@ void PARAL_QEMU(ParseQemuArgs)(char qemu_args[32][256], const char * config_file
 		else{
 			StrLine[strlen(StrLine)-1]='\0';
 			if (strstr(StrLine, "executable:")){
-				strcpy(QEMUEXECUTABLE1, StrLine+sizeof("executable"));
+				strcpy(QEMUEXECUTABLE, StrLine+sizeof("executable"));
 			} else if (strstr(StrLine, "memory:")){
+			    qemu_args[index] = (char*)malloc(4);
 				strcpy(qemu_args[index++], "-m");
+				qemu_args[index] = (char*)malloc(256);
 				strcpy(qemu_args[index++], StrLine+sizeof("memory"));
 			} else if (strstr(StrLine, "network:")){
+			    qemu_args[index] = (char*)malloc(8);
 				strcpy(qemu_args[index++], "-net");
+				qemu_args[index] = (char*)malloc(256);
 				strcpy(qemu_args[index++], StrLine+sizeof("network"));
 			} else if (strstr(StrLine, "usbdevice:")){
+			    qemu_args[index] = (char*)malloc(16);
 				strcpy(qemu_args[index++], "-usbdevice");
+				qemu_args[index] = (char*)malloc(256);
 				strcpy(qemu_args[index++], StrLine+sizeof("usbdevice"));
-			} else if (strstr(StrLine, "monitor:")){
-				strcpy(qemu_args[index++], "-monitor");
-				strcpy(qemu_args[index++], StrLine+sizeof("monitor"));
 			} else if (strstr(StrLine, "hda:")){
+			    qemu_args[index] = (char*)malloc(8);
 				strcpy(qemu_args[index++], "-hda");
+				qemu_args[index] = (char*)malloc(256);
 				strcpy(qemu_args[index++], StrLine+sizeof("hda"));
 			} else if (strstr(StrLine, "vm:")){
+			    qemu_args[index] = (char*)malloc(16);
 				strcpy(qemu_args[index++], "-loadvm");
+				qemu_args[index] = (char*)malloc(256);
 				strcpy(qemu_args[index++], StrLine+sizeof("vm"));
 			} else if (strstr(StrLine, "configfile:")){
+			    qemu_args[index] = (char*)malloc(32);
 				strcpy(qemu_args[index++], "-s2e-config-file");
+				qemu_args[index] = (char*)malloc(256);
 				strcpy(qemu_args[index++], StrLine+sizeof("configfile"));
 			} else {
 				continue;
@@ -117,6 +106,7 @@ void PARAL_QEMU(ParseQemuArgs)(char qemu_args[32][256], const char * config_file
 		}
 
 	}
+	qemu_args[index] = NULL;
 	fclose (config_fp);
 }
 
@@ -139,6 +129,7 @@ void PARAL_QEMU(SetupSHM4Ready)(void)
     OKF("Ready share memory attached at %X.\n", (int) shm);
     ReadArray = (u8*) shm;
 }
+
 /*
  * We don't create bitmap here because we cannot synchronize well with qemu, so give this chance to qemus.
  * While control pipes could be initialed at both sides.
@@ -180,20 +171,10 @@ void PARAL_QEMU(InitQemuQueue)(void)
             if (dup2(fd[1], CTRLPIPE(getpid()) + 1) < 0
                                 || dup2(fd[0], CTRLPIPE(getpid())) < 0) // Duplicate file descriptor before execv(), otherwise QEMU cannot access pipes forever.
                 exit(EXIT_FAILURE);
-            //execv(QEMUEXECUTABLE, qemu_argments);qemu_argv
-            execv(QEMUEXECUTABLE, qemu_argv);
+            execv(QEMUEXECUTABLE, qemu_argments);
+            //execv(QEMUEXECUTABLE, qemu_argv);
         } else {
-            //TODO: remove this initial to a macro
-            allQemus[i].pid = pid;
-            allQemus[i].start_us = 0;
-            allQemus[i].stop_us = 0;
-            allQemus[i].handled = 1;
-            allQemus[i].out_file = NULL;
-            ReadArray[pid] = 1;
-            allQemus[i].cur_queue = NULL;
-            allQemus[i].cur_stage = 18; // Initial stage
-            allQemus[i].cover_new = 1; // initial to play
-            allQemus[i].mod_off = -1;
+            INIT_QEMU(allQemus[i],pid);
             u8* _tcDir = (u8*) malloc(128);
             sprintf(_tcDir, "/tmp/afltestcase/%d/", pid);
             if(access(_tcDir, F_OK))
@@ -208,39 +189,6 @@ void PARAL_QEMU(InitQemuQueue)(void)
         i++;
     }
 }
-
-/*
-void PARAL_QEMU(InitStuckHelper)(void)
-{
-    int s2e_w_fd[2]; // for s2e write
-    int afl_w_fd[2]; // for afl write
-    if(pipe(s2e_w_fd)!=0)
-        PFATAL("pipe() for s2e failed");
-    if(pipe(afl_w_fd)!=0)
-        PFATAL("pipe() for afl failed");
-
-    if (dup2(s2e_w_fd[1], S2ECTRLPIPE + 1) < 0 || dup2(s2e_w_fd[0], S2ECTRLPIPE) < 0)
-        PFATAL("dup2() for s2e failed");
-    if (dup2(afl_w_fd[1], AFLCTRLPIPE + 1) < 0 || dup2(afl_w_fd[0], AFLCTRLPIPE) < 0)
-        PFATAL("dup2() for afl failed");
-    pid_t pid = fork();
-    if (pid < 0)
-        PFATAL("fork() failed");
-    if (!pid) {
-        // start stuck helper
-        execv(QEMUEXECUTABLE, stuckhelper_argv);
-    } else {
-        // more jobs
-        OKF("[+] Starting stuck helper...");
-        u8* _tcDir = (u8*) malloc(128);
-        sprintf(_tcDir, "/tmp/afltestcase/%d/", pid);
-        if(access(_tcDir, F_OK))
-            mkdir(_tcDir, 0777);
-        stuck_helper_dir = _tcDir;
-        sleep(10); // why not sleep for a while.
-    }
-}
-*/
 
 void PARAL_QEMU(setupTracebits) (void)
 {

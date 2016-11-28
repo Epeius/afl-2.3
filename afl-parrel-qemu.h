@@ -56,6 +56,18 @@ extern void process_unhandled_qemus();
 extern u8 isAfterWait;
 extern u8 currentQemuAfterWait;
 
+#define INIT_QEMU(_qemu, _pid)    \
+        _qemu.pid = _pid;      \
+        _qemu.start_us = 0;     \
+        _qemu.stop_us = 0;      \
+        _qemu.handled = 1;      \
+        _qemu.out_file = NULL;    \
+        _qemu.cur_queue = NULL;   \
+        _qemu.cur_stage = 18;   \
+        _qemu.cover_new = 1;    \
+        _qemu.mod_off = -1;     \
+        ReadArray[_pid] = 1
+
 // Wait for all the qemus until they are all free and collect their results
 #define WAIT_ALLQEMUS_FREE               \
       do {       \

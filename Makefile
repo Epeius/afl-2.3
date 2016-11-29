@@ -88,6 +88,7 @@ ifdef CONFIG_S2E
 afl-fuzz: $(SRC_PATH)/afl-fuzz.c $(COMM_HDR) | test_x86
 	$(CC) $(CFLAGS) $(SRC_PATH)/$@.c $(SRC_PATH)/afl-parrel-qemu.c -o $@ $(LDFLAGS)
 	ln -sf $(SRC_PATH)/s2earg.config s2earg.config
+	ln -sf $(SRC_PATH)/cleanEnv.sh cleanEnv.sh
 else
 afl-fuzz: $(SRC_PATH)/afl-fuzz.c $(COMM_HDR) | test_x86
 	$(CC) $(CFLAGS) $(SRC_PATH)/$@.c -o $@ $(LDFLAGS)

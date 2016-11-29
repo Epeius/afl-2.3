@@ -188,6 +188,14 @@ void PARAL_QEMU(InitQemuQueue)(void)
         }
         i++;
     }
+    // free arguments staffs
+    int index = 0;
+    for (; index < 32; index++) {
+        if (!qemu_argments[index])
+            break;
+        else
+            free(qemu_argments[index]);
+    }
 }
 
 void PARAL_QEMU(setupTracebits) (void)

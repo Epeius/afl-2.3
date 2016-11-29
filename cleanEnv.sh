@@ -15,7 +15,17 @@ do
 	_index=`expr $_index + 1`;
 done
 
-exit 
+qemu_total=$(ps -A | grep qemu | awk 'END{print NR}')
+qemu_total=`expr $qemu_total + 1`;
+index=1
+while [ $index -lt $qemu_total ]
+do
+	qemuPid=$(ps -A | grep qemu | sed -n ''$index'p' | awk 'END{print $1}')
+	echo $yourpass | sudo -S kill -s SIGKILL $qemuPid
+	index=`expr $index + 1`;	
+done
+
+
 mkdir /tmp/afltestcase
 mkdir /tmp/afltracebits
 
@@ -24,6 +34,10 @@ rm -rf /tmp/afltracebits/*
 
 rm -f /tmp/afl_qemu_queue
 
-cp /home/epeius/work/afl-1.96b/tests/plot/aa.jpeg /home/epeius/work/afl-1.96b/tests/seed/aa.jpeg
+rm -rf /home/binzhang/EPFL/testfolder/output/*
+rm -rf /home/binzhang/EPFL/testfolder/input/*
 
-rm -rf /home/epeius/work/afl-1.96b/tests/output/*
+echo a > /home/binzhang/EPFL/testfolder/input/aa
+
+echo bb > /home/binzhang/EPFL/testfolder/input/bb
+

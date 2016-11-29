@@ -4103,6 +4103,54 @@ dir_cleanup_failed:
 
 }
 
+#ifdef CONFIG_S2E
+static void cleanupSymbexDir(void) {
+    DIR* symdir;
+    symdir = opendir(symbex_dir);
+    if (!symdir) PFATAL("Unable to open '%s'", symbex_dir);
+
+
+    struct dirent* qd_ent;
+
+    while ((qd_ent = readdir(symdir))) {
+
+        u8* path;
+        s32 fd;
+        struct stat st;
+
+
+        path = alloc_printf("%s/%s", symbex_dir, qd_ent->d_name);
+
+        /* Allow this to fail in case the other fuzzer is resuming or so... */
+
+        fd = open(path, O_RDONLY);
+
+        if (fd < 0) {
+            ck_free(path);
+            continue;
+        }
+
+        if (fstat(fd, &st))
+            PFATAL("fstat() failed");
+
+        /* This also takes care of . and .. */
+
+        if (!S_ISREG(st.st_mode) || !st.st_size ) {
+
+          ck_free(path);
+          close(fd);
+          continue;
+
+        }
+
+        if (unlink(path)) PFATAL("Unable to delete '%s'", path); // clean up
+
+        ck_free(path);
+        close(fd);
+
+    }
+}
+#endif
 
 /* Delete fuzzer output directory if we recognize it as ours, if the fuzzer
    is not currently running, and if the last run time isn't too great. */
@@ -7305,7 +7353,6 @@ static void read_symbex_testcases(char ** argv) {
     cur_depth = 0;
 
     struct dirent* qd_ent;
-    u8 *qd_synced_path;
 
     while ((qd_ent = readdir(symdir))) {
 
@@ -8674,6 +8721,8 @@ int main(int argc, char** argv) {
 #ifdef CONFIG_S2E
   if (!out_file) FATAL("Outfile must be specified when combining with symbex!");
   if (!symbex_dir) ACTF("Symbex testcase directory must be specified when combining with symbex!");
+  else
+      cleanupSymbexDir();
 #endif
 
   if (optind == argc || !in_dir || !out_dir) usage(argv[0]);

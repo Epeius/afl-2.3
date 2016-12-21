@@ -2374,44 +2374,44 @@ EXP_ST void init_forkserver(char** argv) {
  * only happens when checking qemu status in writing test case. */
 
 static u8 run_target(char** argv) {
-	memset(curQemu->trace_bits, 0, MAP_SIZE);
-	MEM_BARRIER();
+    memset(curQemu->trace_bits, 0, MAP_SIZE);
+    MEM_BARRIER();
 
     s32 res;
     // tell current qemu instance we have a testcase
     char tmp[4];
 
     switch (curQemu->cover_new) {
-    case 0: // not reported redundant, but touches nothing new
+        case 0: // not reported redundant, but touches nothing new
         tmp[0] = 'n';
         tmp[1] = 'o';
         tmp[2] = 'n';
         tmp[3] = 'e';
         break;
-    case 1: // find new
+        case 1:// find new
         tmp[0] = 'p';
         tmp[1] = 'l';
         tmp[2] = 'a';
         tmp[3] = 'y';
         break;
-    case 2: // reported as redundant
+        case 2:// reported as redundant
         tmp[0] = 'r';
         tmp[1] = 'e';
         tmp[2] = 'd';
         tmp[3] = 'u';
         break;
-    default:
+        default:
         PFATAL("Unknown cover_new flag: %d", curQemu->cover_new);
-        break; // never reach here
+        break;// never reach here
     }
     curQemu->start_us = get_cur_time_us();
     ReadArray[curQemu->pid] = 0;
     curQemu->handled = 0;
-   if ((res = write(CTRLPIPE(curQemu->pid) + 1, tmp, 4)) != 4) {
-     if (stop_soon) return 0;
-     RPFATAL(res, "Unable to tell QEMU, oohhhh (OOM?)");
-   }
-   return FAULT_NONE; // 0
+    if ((res = write(CTRLPIPE(curQemu->pid) + 1, tmp, 4)) != 4) {
+        if (stop_soon) return 0;
+        RPFATAL(res, "Unable to tell QEMU, oohhhh (OOM?)");
+    }
+    return FAULT_NONE; // 0
 }
 #else
 
@@ -5469,6 +5469,80 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
 
 }
 
+#ifdef CONFIG_S2E
+void read_symbex_testcases(char ** argv) {
+    DIR* symdir;
+    symdir = opendir(symbex_dir);
+    if (!symdir) PFATAL("Unable to open '%s'", symbex_dir);
+
+    cur_depth = 0;
+
+    struct dirent* qd_ent;
+
+    while ((qd_ent = readdir(symdir))) {
+
+        u8* path;
+        s32 fd;
+        struct stat st;
+
+
+        path = alloc_printf("%s/%s", symbex_dir, qd_ent->d_name);
+
+        /* Allow this to fail in case the other fuzzer is resuming or so... */
+
+        fd = open(path, O_RDONLY);
+
+        if (fd < 0) {
+            ck_free(path);
+            continue;
+        }
+
+        if (fstat(fd, &st))
+            PFATAL("fstat() failed");
+
+        /* This also takes care of . and .. */
+
+        if (!S_ISREG(st.st_mode) || !st.st_size ) {
+
+          ck_free(path);
+          close(fd);
+          continue;
+
+        }
+
+        /* Ignore zero-sized or oversized files. */
+
+        if (st.st_size && st.st_size <= MAX_FILE) {
+
+            u8 fault;
+            u8* mem = mmap(0, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+
+            if (mem == MAP_FAILED)
+                PFATAL("Unable to mmap '%s'", path);
+
+            /* See what happens. We rely on save_if_interesting() to catch major
+             errors and save the test case. */
+            write_to_testcase(mem, st.st_size, NULL, STAGE_READSYMBEX, 0);
+            fault = run_target(argv);
+
+            if (stop_soon)
+                return;
+
+            syncing_party = 0;
+
+            munmap(mem, st.st_size);
+
+        }
+
+        if (unlink(path)) PFATAL("Unable to delete '%s'", path); // delete file to avoid repeating testing
+
+        ck_free(path);
+        close(fd);
+
+    }
+
+}
+#endif
 
 /* Take the current entry from the queue, fuzz it for a while. This
    function is a tad too long... returns 0 if fuzzed successfully, 1 if
@@ -5746,6 +5820,13 @@ static u8 fuzz_one(char** argv) {
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
 #endif
 
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
+#endif
+
   new_hit_cnt = queued_paths + unique_crashes;
 
   stage_finds[STAGE_FLIP1]  += new_hit_cnt - orig_hit_cnt;
@@ -5779,6 +5860,13 @@ static u8 fuzz_one(char** argv) {
 
 #ifdef CONFIG_S2E
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
+#endif
+
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
 #endif
 
   new_hit_cnt = queued_paths + unique_crashes;
@@ -5818,6 +5906,13 @@ static u8 fuzz_one(char** argv) {
 
 #ifdef CONFIG_S2E
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
+#endif
+
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
 #endif
 
   new_hit_cnt = queued_paths + unique_crashes;
@@ -5935,6 +6030,14 @@ static u8 fuzz_one(char** argv) {
 
   blocks_eff_total += EFF_ALEN(len);
 #endif
+
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
+#endif
+
   new_hit_cnt = queued_paths + unique_crashes;
 
   stage_finds[STAGE_FLIP8]  += new_hit_cnt - orig_hit_cnt;
@@ -5980,6 +6083,13 @@ static u8 fuzz_one(char** argv) {
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
 #endif
 
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
+#endif
+
   new_hit_cnt = queued_paths + unique_crashes;
 
   stage_finds[STAGE_FLIP16]  += new_hit_cnt - orig_hit_cnt;
@@ -6021,6 +6131,13 @@ static u8 fuzz_one(char** argv) {
 
 #ifdef CONFIG_S2E
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
+#endif
+
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
 #endif
 
   new_hit_cnt = queued_paths + unique_crashes;
@@ -6103,6 +6220,13 @@ skip_bitflip:
 
 #ifdef CONFIG_S2E
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
+#endif
+
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
 #endif
   new_hit_cnt = queued_paths + unique_crashes;
 
@@ -6218,6 +6342,13 @@ skip_bitflip:
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
 #endif
 
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
+#endif
+
   new_hit_cnt = queued_paths + unique_crashes;
 
   stage_finds[STAGE_ARITH16]  += new_hit_cnt - orig_hit_cnt;
@@ -6330,6 +6461,13 @@ skip_bitflip:
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
 #endif
 
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
+#endif
+
   new_hit_cnt = queued_paths + unique_crashes;
 
   stage_finds[STAGE_ARITH32]  += new_hit_cnt - orig_hit_cnt;
@@ -6393,6 +6531,13 @@ skip_arith:
 
 #ifdef CONFIG_S2E
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
+#endif
+
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
 #endif
 
   new_hit_cnt = queued_paths + unique_crashes;
@@ -6473,6 +6618,13 @@ skip_arith:
 
 #ifdef CONFIG_S2E
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
+#endif
+
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
 #endif
 
   new_hit_cnt = queued_paths + unique_crashes;
@@ -6556,6 +6708,13 @@ skip_arith:
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
 #endif
 
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
+#endif
+
   new_hit_cnt = queued_paths + unique_crashes;
 
   stage_finds[STAGE_INTEREST32]  += new_hit_cnt - orig_hit_cnt;
@@ -6630,6 +6789,13 @@ skip_interest:
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
 #endif
 
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
+#endif
+
   new_hit_cnt = queued_paths + unique_crashes;
 
   stage_finds[STAGE_EXTRAS_UO]  += new_hit_cnt - orig_hit_cnt;
@@ -6685,6 +6851,13 @@ skip_interest:
 
 #ifdef CONFIG_S2E
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
+#endif
+
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
 #endif
 
   new_hit_cnt = queued_paths + unique_crashes;
@@ -6744,6 +6917,13 @@ skip_user_extras:
 
 #ifdef CONFIG_S2E
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
+#endif
+
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
 #endif
 
   new_hit_cnt = queued_paths + unique_crashes;
@@ -7210,6 +7390,13 @@ havoc_stage:
   WAIT_ALLQEMUS_FREE; // Make sure every qemu instance is free before collecting the data.
 #endif
 
+#ifdef CONFIG_S2E
+    if(symbex_dir) {
+        read_symbex_testcases(0);
+        WAIT_ALLQEMUS_FREE;
+    }
+#endif
+
   new_hit_cnt = queued_paths + unique_crashes;
 
   if (!splice_cycle) {
@@ -7343,82 +7530,6 @@ abandon_entry:
 #undef FLIP_BIT
 
 }
-
-#ifdef CONFIG_S2E
-static void read_symbex_testcases(char ** argv) {
-    DIR* symdir;
-    symdir = opendir(symbex_dir);
-    if (!symdir) PFATAL("Unable to open '%s'", symbex_dir);
-
-    cur_depth = 0;
-
-    struct dirent* qd_ent;
-
-    while ((qd_ent = readdir(symdir))) {
-
-        u8* path;
-        s32 fd;
-        struct stat st;
-
-
-        path = alloc_printf("%s/%s", symbex_dir, qd_ent->d_name);
-
-        /* Allow this to fail in case the other fuzzer is resuming or so... */
-
-        fd = open(path, O_RDONLY);
-
-        if (fd < 0) {
-            ck_free(path);
-            continue;
-        }
-
-        if (fstat(fd, &st))
-            PFATAL("fstat() failed");
-
-        /* This also takes care of . and .. */
-
-        if (!S_ISREG(st.st_mode) || !st.st_size ) {
-
-          ck_free(path);
-          close(fd);
-          continue;
-
-        }
-
-        /* Ignore zero-sized or oversized files. */
-
-        if (st.st_size && st.st_size <= MAX_FILE) {
-
-            u8 fault;
-            u8* mem = mmap(0, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-
-            if (mem == MAP_FAILED)
-                PFATAL("Unable to mmap '%s'", path);
-
-            /* See what happens. We rely on save_if_interesting() to catch major
-             errors and save the test case. */
-            write_to_testcase(mem, st.st_size, NULL, STAGE_READSYMBEX, 0);
-            fault = run_target(argv);
-
-            if (stop_soon)
-                return;
-
-            syncing_party = 0;
-
-            munmap(mem, st.st_size);
-
-        }
-
-        if (unlink(path)) PFATAL("Unable to delete '%s'", path); // delete file to avoid repeating testing
-
-        ck_free(path);
-        close(fd);
-
-    }
-
-}
-#endif
-
 
 #ifdef CONFIG_S2E
 
@@ -8904,13 +9015,6 @@ int main(int argc, char** argv) {
 
     queue_cur = queue_cur->next;
     current_entry++;
-
-#ifdef CONFIG_S2E
-    if(symbex_dir) {
-        read_symbex_testcases(use_argv);
-        WAIT_ALLQEMUS_FREE;
-    }
-#endif
 
   }
 

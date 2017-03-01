@@ -63,9 +63,9 @@
 /* For systems that have sched_setaffinity; right now just Linux, but one
    can hope... */
 
-#ifdef __linux__
-#  define HAVE_AFFINITY 1
-#endif /* __linux__ */
+//#ifdef __linux__
+//#  define HAVE_AFFINITY 1
+//#endif /* __linux__ */
 
 /* A toggle to export some variables when building as a library. Not very
    useful for the general public. */
@@ -132,15 +132,14 @@ static s32 forksrv_pid,               /* PID of the fork server           */
            out_dir_fd = -1;           /* FD of the lock file              */
 
 EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
-EXP_ST u8* virgin_bits;		      /* SHM with regions yet untouched   */
 
 EXP_ST u8  virgin_hang[MAP_SIZE],     /* Bits we haven't seen in hangs    */
-           virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */
+           virgin_crash[MAP_SIZE],    /* Bits we haven't seen in crashes  */
+	   virgin_bits[MAP_SIZE];     /* Regions yet untouched by fuzzing */
 
 static u8  var_bytes[MAP_SIZE];       /* Bytes that appear to be variable */
 
 static s32 shm_id;                    /* ID of the SHM region             */
-static s32 vir_shm_id;                /* ID of the SHM region for virgin  */
 
 static volatile u8 stop_soon,         /* Ctrl-C pressed?                  */
                    clear_screen = 1,  /* Window resized?                  */
@@ -1198,7 +1197,6 @@ static inline void classify_counts(u32* mem) {
 static void remove_shm(void) {
 
   shmctl(shm_id, IPC_RMID, NULL);
-  shmctl(vir_shm_id, IPC_RMID, NULL);
 }
 
 
@@ -1339,13 +1337,6 @@ static void cull_queue(void) {
 EXP_ST void setup_shm(void) {
 
   u8* shm_str;
-
-
-  vir_shm_id = shmget((key_t)1234, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
-  if (vir_shm_id < 0) PFATAL ("shmget() failed for virgin map");
-
-  virgin_bits = shmat(vir_shm_id, NULL, 0);
-  if (!virgin_bits) PFATAL("shmat() failed for virgin map");
 
 
   if (!in_bitmap) memset(virgin_bits, 255, MAP_SIZE);
@@ -7946,6 +7937,12 @@ int main(int argc, char** argv) {
 #ifdef HAVE_AFFINITY
   bind_to_free_cpu();
 #endif /* HAVE_AFFINITY */
+
+  FILE* _logfile = fopen ("import.log", "w");
+  if (_logfile < 0)
+    FATAL("Cannot create file \"import.log\"");
+  else
+    fclose(_logfile);
 
   check_crash_handling();
   check_cpu_governor();

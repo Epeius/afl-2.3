@@ -45,6 +45,8 @@
 #include <termios.h>
 #include <dlfcn.h>
 #include <sched.h>
+#include <libgen.h>
+
 
 #include <sys/wait.h>
 #include <sys/time.h>
@@ -4876,6 +4878,27 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
 }
 
 
+static u8 init_filter(char* filepath, u8* filter, s32 len )
+{
+    char filename[256];
+    memset(filename, 0, 256);
+    sprintf(filename, "%s/%s.liveness", "/home/bizhang/s2e-afl-test/testplace/RDJPGCOM/livenesses", basename(filepath));
+
+    FILE * fp;
+    fp = fopen (filename, "r");
+    if (fp <= 0) {
+        return 0;
+    }
+
+    int offset, liveness;
+    while ( EOF != fscanf(fp, "%d-%d\n", &offset, &liveness)) {
+        if (offset < len)
+            filter[offset] = 1;
+    }
+
+    return 1;
+}
+
 /* Take the current entry from the queue, fuzz it for a while. This
    function is a tad too long... returns 0 if fuzzed successfully, 1 if
    skipped or bailed out. */
@@ -5011,6 +5034,18 @@ static u8 fuzz_one(char** argv) {
   memcpy(out_buf, in_buf, len);
 
   /*********************
+   * Initialize Filter *
+   *********************/
+  u8* filter = (u8*) malloc(len * sizeof(u8));
+
+  memset(filter, 0, len * sizeof(u8));
+
+  if (!init_filter(queue_cur->fname, filter, len)) {
+      // if fails, set all bytes as interesting
+      memset(filter, 1, len * sizeof(u8));
+  }
+
+  /*********************
    * PERFORMANCE SCORE *
    *********************/
 
@@ -5053,9 +5088,16 @@ static u8 fuzz_one(char** argv) {
 
   prev_cksum = queue_cur->exec_cksum;
 
+  u32 filtered = 0;
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
     stage_cur_byte = stage_cur >> 3;
+
+    if (!filter[stage_cur_byte]) {
+	filtered += 8;
+	stage_cur += 7;
+        continue;
+   }
 
     FLIP_BIT(out_buf, stage_cur);
 
@@ -5135,7 +5177,8 @@ static u8 fuzz_one(char** argv) {
   new_hit_cnt = queued_paths + unique_crashes;
 
   stage_finds[STAGE_FLIP1]  += new_hit_cnt - orig_hit_cnt;
-  stage_cycles[STAGE_FLIP1] += stage_max;
+  stage_cycles[STAGE_FLIP1] += (stage_max - filtered);
+
 
   /* Two walking bits. */
 
@@ -5145,12 +5188,19 @@ static u8 fuzz_one(char** argv) {
 
   orig_hit_cnt = new_hit_cnt;
 
+  filtered = 0;
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
     stage_cur_byte = stage_cur >> 3;
 
     FLIP_BIT(out_buf, stage_cur);
     FLIP_BIT(out_buf, stage_cur + 1);
+
+    if (!filter[stage_cur_byte] && !filter[(stage_cur+1) >> 3]) {
+	filtered += 8;
+        stage_cur += 7;
+        continue;
+    }
 
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 
@@ -5162,7 +5212,7 @@ static u8 fuzz_one(char** argv) {
   new_hit_cnt = queued_paths + unique_crashes;
 
   stage_finds[STAGE_FLIP2]  += new_hit_cnt - orig_hit_cnt;
-  stage_cycles[STAGE_FLIP2] += stage_max;
+  stage_cycles[STAGE_FLIP2] += (stage_max - filtered);
 
   /* Four walking bits. */
 
@@ -5172,6 +5222,7 @@ static u8 fuzz_one(char** argv) {
 
   orig_hit_cnt = new_hit_cnt;
 
+  filtered = 0;
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
     stage_cur_byte = stage_cur >> 3;
@@ -5180,6 +5231,15 @@ static u8 fuzz_one(char** argv) {
     FLIP_BIT(out_buf, stage_cur + 1);
     FLIP_BIT(out_buf, stage_cur + 2);
     FLIP_BIT(out_buf, stage_cur + 3);
+
+    if (!filter[stage_cur_byte] &&
+            !filter[(stage_cur + 1) >> 3] &&
+            !filter[(stage_cur + 2) >> 3] &&
+            !filter[(stage_cur + 3) >> 3]) {
+	filtered += 8;
+	stage_cur += 7;
+        continue;
+    }
 
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 
@@ -5193,7 +5253,7 @@ static u8 fuzz_one(char** argv) {
   new_hit_cnt = queued_paths + unique_crashes;
 
   stage_finds[STAGE_FLIP4]  += new_hit_cnt - orig_hit_cnt;
-  stage_cycles[STAGE_FLIP4] += stage_max;
+  stage_cycles[STAGE_FLIP4] += (stage_max - filtered);
 
   /* Effector map setup. These macros calculate:
 
@@ -5307,6 +5367,11 @@ static u8 fuzz_one(char** argv) {
       continue;
     }
 
+    if (!filter[i] && !filter[i + 1]) {
+        stage_max--;
+        continue;
+    }
+
     stage_cur_byte = i;
 
     *(u16*)(out_buf + i) ^= 0xFFFF;
@@ -5342,6 +5407,14 @@ static u8 fuzz_one(char** argv) {
         !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
       stage_max--;
       continue;
+    }
+
+    if (!filter[i] && 
+            !filter[i + 1] &&
+            !filter[i + 2] && 
+            !filter[i + 3]) {
+        stage_max--;
+        continue;
     }
 
     stage_cur_byte = i;
@@ -5386,6 +5459,11 @@ skip_bitflip:
     if (!eff_map[EFF_APOS(i)]) {
       stage_max -= 2 * ARITH_MAX;
       continue;
+    }
+
+    if (!filter[i]) {
+        stage_max -= 2 * ARITH_MAX;
+        continue;
     }
 
     stage_cur_byte = i;
@@ -5448,6 +5526,11 @@ skip_bitflip:
     /* Let's consult the effector map... */
 
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
+      stage_max -= 4 * ARITH_MAX;
+      continue;
+    }
+    
+    if (!filter[i] && !filter[i + 1]) {
       stage_max -= 4 * ARITH_MAX;
       continue;
     }
@@ -5543,6 +5626,12 @@ skip_bitflip:
 
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
         !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
+      stage_max -= 4 * ARITH_MAX;
+      continue;
+    }
+    
+    if (!filter[i] && !filter[i + 1] &&
+        !filter[i + 2] && !filter[i + 3]) {
       stage_max -= 4 * ARITH_MAX;
       continue;
     }
@@ -5644,6 +5733,11 @@ skip_arith:
       continue;
     }
 
+    if (!filter[i]) {
+        stage_max -= sizeof(interesting_8);
+        continue;
+    }
+
     stage_cur_byte = i;
 
     for (j = 0; j < sizeof(interesting_8); j++) {
@@ -5691,6 +5785,11 @@ skip_arith:
     /* Let's consult the effector map... */
 
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
+      stage_max -= sizeof(interesting_16);
+      continue;
+    }
+
+    if (!filter[i] && !filter[i + 1]) {
       stage_max -= sizeof(interesting_16);
       continue;
     }
@@ -5764,6 +5863,12 @@ skip_arith:
       continue;
     }
 
+    if (!filter[i] && !filter[i + 1] &&
+        !filter[i + 2] && !filter[i + 3]) {
+      stage_max -= sizeof(interesting_32) >> 1;
+      continue;
+    }
+
     stage_cur_byte = i;
 
     for (j = 0; j < sizeof(interesting_32) / 4; j++) {
@@ -5809,6 +5914,7 @@ skip_arith:
 
   stage_finds[STAGE_INTEREST32]  += new_hit_cnt - orig_hit_cnt;
   stage_cycles[STAGE_INTEREST32] += stage_max;
+
 
 skip_interest:
 
@@ -6542,6 +6648,8 @@ abandon_entry:
   if (in_buf != orig_in) ck_free(in_buf);
   ck_free(out_buf);
   ck_free(eff_map);
+
+  free(filter);
 
   return ret_val;
 

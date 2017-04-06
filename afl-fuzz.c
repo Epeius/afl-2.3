@@ -47,7 +47,6 @@
 #include <sched.h>
 #include <libgen.h>
 
-
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <sys/shm.h>
@@ -57,6 +56,8 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/file.h>
+
+#include "hashset.h"
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined (__OpenBSD__)
 #  include <sys/sysctl.h>
@@ -220,6 +221,9 @@ static s32 cpu_aff = -1;       	      /* Selected CPU core                */
 #endif /* HAVE_AFFINITY */
 
 static FILE* plot_file;               /* Gnuplot output file              */
+static FILE* afl_log_file;
+
+static hashset_t* g_hashes;
 
 struct queue_entry {
 
@@ -4887,15 +4891,22 @@ static u8 init_filter(char* filepath, u8* filter, s32 len )
     FILE * fp;
     fp = fopen (filename, "r");
     if (fp <= 0) {
+        char log_msg[512];
+        sprintf(log_msg, "Cannot open %s.\n", filename);
+        fputs(log_msg, afl_log_file);
         return 0;
     }
+
+    char log_msg[512];
+    sprintf(log_msg, "Start reading %s.\n", filename);
+    fputs(log_msg, afl_log_file);
 
     int offset, liveness;
     while ( EOF != fscanf(fp, "%d-%d\n", &offset, &liveness)) {
         if (offset < len)
             filter[offset] = 1;
     }
-
+    fclose(fp);
     return 1;
 }
 
@@ -5037,14 +5048,15 @@ static u8 fuzz_one(char** argv) {
    * Initialize Filter *
    *********************/
   u8* filter = (u8*) malloc(len * sizeof(u8));
-
+  u8  good_filter = 1;
   memset(filter, 0, len * sizeof(u8));
 
   if (!init_filter(queue_cur->fname, filter, len)) {
       // if fails, set all bytes as interesting
       memset(filter, 1, len * sizeof(u8));
+      good_filter = 0;
   }
-
+  
   /*********************
    * PERFORMANCE SCORE *
    *********************/
@@ -6500,8 +6512,37 @@ havoc_stage:
 
     }
 
+    u8 new_hash = 0;
+    {
+        // Collect all the bytes values that affect the path.
+        // This is not very effective because it has little possibility to have hash collision.
+        u32 index = 0;
+        char interesting_offs[len];
+        memset(interesting_offs, 0, len);
+        for(; index < MIN(temp_len, len); index++) {
+            if (filter[index]) {
+                interesting_offs[index] = out_buf[index];
+            }
+        }
+        u32 chsum = hash32(interesting_offs, len, HASH_CONST);
+        if (!hashset_is_member(*g_hashes, chsum)) {
+            hashset_add(*g_hashes, chsum);
+            new_hash = 1;
+        }
+
+    }
+    u32 tmp_queued_paths = queued_paths;
     if (common_fuzz_stuff(argv, out_buf, temp_len))
       goto abandon_entry;
+    
+    if (!new_hash) {
+        if(tmp_queued_paths == queued_paths) {
+            fputs("old_hash and non new found.\n", afl_log_file);
+        }
+        else {
+            fputs("old_hash but new found.\n", afl_log_file);
+        }
+    }
 
     /* out_buf might have been mangled a bit, so let's restore it to its
        original size and shape. */
@@ -6628,6 +6669,68 @@ retry_splicing:
 
 #endif /* !IGNORE_FINDS */
 
+  /**********************
+   *   GA: Cross Over   *
+   **********************/
+   if (queued_paths == 1)
+       goto abandon_entry;
+  
+   stage_cur = 0;
+   stage_max = 1024;
+   u32 index = 0;
+   u32 total_gene = 0;
+   u32* genes = (u32*)malloc(len * sizeof(u32));
+
+   for (; index < len; index++) {
+       if (filter[index]) {
+           genes[total_gene] = index;
+           total_gene++;
+       }
+   }
+  
+   for (; stage_cur < stage_max; stage_cur++) {
+       u32 gene_pos = genes[UR(total_gene)];
+
+       struct queue_entry * dad = queue_cur;
+       struct queue_entry * mom = dad;
+       
+       while (mom == dad) {
+           u32 offset = UR(queued_paths);
+           mom = queue;
+           while (offset) {
+               mom = mom->next;
+               offset--;
+           }
+       }
+       
+       s32 fd = open(mom->fname, O_RDONLY);
+
+       if (fd < 0) PFATAL("Unable to open '%s'", mom->fname);
+       u32 mom_len = mom->len;
+
+       u8* mom_buf = mmap(0, mom->len, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+       if (mom_buf == MAP_FAILED) PFATAL("Unable to mmap '%s'", mom->fname);
+       close(fd);
+
+       if (gene_pos >= mom_len)
+           continue;
+
+       out_buf[gene_pos] = mom_buf[gene_pos];
+
+
+       u32 tmp_queued_paths = queued_paths;
+
+       if (common_fuzz_stuff(argv, out_buf, temp_len))
+           goto abandon_entry;
+
+       out_buf[gene_pos] = in_buf[gene_pos];
+
+       munmap(mom_buf, mom_len);
+
+       if (queued_paths != tmp_queued_paths)
+           PFATAL("NOT EQUAL, new finds?");
+   }
+
   ret_val = 0;
 
 abandon_entry:
@@ -6650,7 +6753,6 @@ abandon_entry:
   ck_free(eff_map);
 
   free(filter);
-
   return ret_val;
 
 #undef FLIP_BIT
@@ -8052,6 +8154,10 @@ int main(int argc, char** argv) {
   else
     fclose(_logfile);
 
+  afl_log_file = fopen(LOGFILE, "w");
+  if (afl_log_file <= 0)
+    FATAL("Cannot create log file");
+
   check_crash_handling();
   check_cpu_governor();
 
@@ -8102,6 +8208,12 @@ int main(int argc, char** argv) {
     start_time += 4000;
     if (stop_soon) goto stop_fuzzing;
   }
+
+  hashset_t collected_hashes = hashset_create();
+  if (!collected_hashes) 
+      PFATAL("Cannot create hash table");
+
+  g_hashes = &collected_hashes;
 
   while (1) {
 
@@ -8164,7 +8276,7 @@ int main(int argc, char** argv) {
 
     queue_cur = queue_cur->next;
     current_entry++;
-
+    
   }
 
   if (queue_cur) show_stats();
@@ -8189,11 +8301,12 @@ stop_fuzzing:
   }
 
   fclose(plot_file);
+  fclose(afl_log_file);
   destroy_queue();
   destroy_extras();
   ck_free(target_path);
   ck_free(sync_id);
-
+  hashset_destroy(collected_hashes);
   alloc_report();
 
   OKF("We're done here. Have a nice day!\n");

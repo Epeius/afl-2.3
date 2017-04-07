@@ -23,6 +23,8 @@
 
 #define VERSION             "2.35b"
 
+#define LOGFILE    "afl.log"
+
 /******************************************************
  *                                                    *
  *  Settings that may be of interest to power users:  *

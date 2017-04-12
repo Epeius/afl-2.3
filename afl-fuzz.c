@@ -738,6 +738,22 @@ static void mark_as_redundant(struct queue_entry* q, u8 state) {
 
 }
 
+/* Compact trace bytes into a smaller bitmap. We effectively just drop the
+   count information here. This is called only sporadically, for some
+   new paths. */
+
+static void minimize_bits(u8* dst, u8* src) {
+
+  u32 i = 0;
+
+  while (i < MAP_SIZE) {
+
+    if (*(src++)) dst[i >> 3] |= 1 << (i & 7);
+    i++;
+
+  }
+
+}
 
 /* Append new test case to the queue. */
 
@@ -773,6 +789,11 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
 
   last_path_time = get_cur_time();
 
+   if (!q->trace_mini_persist) {
+     q->trace_mini_persist = ck_alloc(MAP_SIZE >> 3);
+     minimize_bits(q->trace_mini_persist, trace_bits);
+   }
+
 }
 
 
@@ -787,6 +808,7 @@ EXP_ST void destroy_queue(void) {
     n = q->next;
     ck_free(q->fname);
     ck_free(q->trace_mini);
+    ck_free(q->trace_mini_persist);
     ck_free(q);
     q = n;
 
@@ -1169,24 +1191,6 @@ static inline void classify_counts(u32* mem) {
 static void remove_shm(void) {
 
   shmctl(shm_id, IPC_RMID, NULL);
-
-}
-
-
-/* Compact trace bytes into a smaller bitmap. We effectively just drop the
-   count information here. This is called only sporadically, for some
-   new paths. */
-
-static void minimize_bits(u8* dst, u8* src) {
-
-  u32 i = 0;
-
-  while (i < MAP_SIZE) {
-
-    if (*(src++)) dst[i >> 3] |= 1 << (i & 7);
-    i++;
-
-  }
 
 }
 

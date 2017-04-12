@@ -46,6 +46,38 @@ u8 initEntry(T_QE* entry)
     return 1;
 }
 
+/*
+ * Caculate Cosine Similarity for two entries.
+ */
+u32 getCS(T_QE* Qa, T_QE* Qb)
+{
+    if (!Qa->trace_mini_persist) {
+        char msg [512];
+        sprintf(msg, "Cannot find mini trace for %s\n", Qa->fname);
+        fputs(msg, afl_log_file);
+        return 0;
+    }
+
+    if (!Qb->trace_mini_persist) {
+        char msg [512];
+        sprintf(msg, "Cannot find mini trace for %s\n", Qb->fname);
+        fputs(msg, afl_log_file);
+        return 0;
+    }
+
+    double dot = 0.0, denom_a = 0.0, denom_b = 0.0 ;
+    for(unsigned int i = 0u; i < MAP_SIZE; i++) {
+        dot += Qa->trace_mini_persist[i] * Qb->trace_mini_persist[i];
+        denom_a += Qa->trace_mini_persist[i] * Qa->trace_mini_persist[i];
+        denom_b += Qb->trace_mini_persist[i] * Qb->trace_mini_persist[i];
+    }
+    double cs_normarized = dot / (sqrt(denom_a) * sqrt(denom_b));
+
+    // integer-ize to 0 ~ 10000
+    u32 cs = 10000 - (u32)(cs_normarized * 10000);
+    return cs;
+}
+
 u32 getDistance(T_QE* Qa, T_QE* Qb)
 {
     if (!Qa->hotbytes_done) {
@@ -105,7 +137,8 @@ T_QE* getFurthestEntry(T_QE* entry, T_QE* queue)
         }
         if (dis_entries.find(_tmp_entry) == dis_entries.end()) {
             // If not has been caculated, then caculate this and update the T_DP structure.
-            u32 dis_value = getDistance(entry, _tmp_entry);
+            //u32 dis_value = getDistance(entry, _tmp_entry);
+            u32 dis_value = getCS(entry, _tmp_entry);
             
             T_DE de;
             de.distance = dis_value;
@@ -126,9 +159,9 @@ T_QE* getFurthestEntry(T_QE* entry, T_QE* queue)
     for (auto it = distance.begin(), end = distance.end(); it != end; it++) {
         T_DE _t_dis_entry = *it;
         if (!_t_dis_entry.entry->was_fuzzed_by_distance) {
-            if (!parseLivenessFile(_t_dis_entry.entry)) {
-                continue;
-            }
+            //if (!parseLivenessFile(_t_dis_entry.entry)) {
+            //    continue;
+            //}
             _t_dis_entry.entry->was_fuzzed_by_distance = 1;
             char msg[512];
             sprintf(msg, "selected %s, distance is %d\n", _t_dis_entry.entry->fname, _t_dis_entry.distance);

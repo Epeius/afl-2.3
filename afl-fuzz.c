@@ -32,6 +32,8 @@
 #include "alloc-inl.h"
 #include "hash.h"
 
+#include "distance.h"
+
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -216,40 +218,7 @@ static s32 cpu_aff = -1;       	      /* Selected CPU core                */
 #endif /* HAVE_AFFINITY */
 
 static FILE* plot_file;               /* Gnuplot output file              */
-
-struct queue_entry {
-
-  u8* fname;                          /* File name for the test case      */
-  u32 len;                            /* Input length                     */
-
-  u8  cal_failed,                     /* Calibration failed?              */
-      trim_done,                      /* Trimmed?                         */
-      was_fuzzed,                     /* Had any fuzzing done yet?        */
-      passed_det,                     /* Deterministic stages passed?     */
-      has_new_cov,                    /* Triggers new coverage?           */
-      var_behavior,                   /* Variable behavior?               */
-      favored,                        /* Currently favored?               */
-      fs_redundant;                   /* Marked as redundant in the fs?   */
-
-  u32 bitmap_size,                    /* Number of bits set in bitmap     */
-      exec_cksum;                     /* Checksum of the execution trace  */
-
-  u64 exec_us,                        /* Execution time (us)              */
-      handicap,                       /* Number of queue cycles behind    */
-      depth;                          /* Path depth                       */
-
-  u8* trace_mini;                     /* Trace bytes, if kept             */
-  u32 tc_ref;                         /* Trace bytes ref count            */
-
-  struct queue_entry *next,           /* Next element, if any             */
-                     *next_100;       /* 100 elements ahead               */
-
-};
-
-static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
-                          *queue_cur, /* Current offset within the queue  */
-                          *queue_top, /* Top of the list                  */
-                          *q_prev100; /* Previous 100 marker              */
+FILE* afl_log_file;
 
 static struct queue_entry*
   top_rated[MAP_SIZE];                /* Top entries for bitmap bytes     */
@@ -314,6 +283,11 @@ enum {
   /* 04 */ FAULT_NOINST,
   /* 05 */ FAULT_NOBITS
 };
+
+
+extern u8 initEntry(T_QE* entry);
+extern T_QE* getFurthestEntry(T_QE* entry, T_QE* queue);
+extern void fini(T_QE* entry);
 
 
 /* Get unix time in milliseconds */
@@ -7613,6 +7587,14 @@ static void save_cmdline(u32 argc, char** argv) {
 
 }
 
+/* Select next seed file to fuzz */
+static struct queue_entry* selectNext(void)
+{
+    initEntry(queue_cur);
+
+    return getFurthestEntry(queue_cur, queue);
+    //return queue_cur->next;
+}
 
 #ifndef AFL_LIB
 
@@ -7856,6 +7838,10 @@ int main(int argc, char** argv) {
   bind_to_free_cpu();
 #endif /* HAVE_AFFINITY */
 
+  afl_log_file = fopen(LOGFILE, "w");
+  if (afl_log_file <= 0) 
+      FATAL("Cannot create log file.");
+
   check_crash_handling();
   check_cpu_governor();
 
@@ -7962,7 +7948,8 @@ int main(int argc, char** argv) {
 
     if (stop_soon) break;
 
-    queue_cur = queue_cur->next;
+    queue_cur = selectNext();
+
     current_entry++;
 
   }
@@ -7989,6 +7976,9 @@ stop_fuzzing:
   }
 
   fclose(plot_file);
+  fclose(afl_log_file);
+  distance_fini(queue);
+
   destroy_queue();
   destroy_extras();
   ck_free(target_path);

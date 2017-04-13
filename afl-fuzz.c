@@ -288,8 +288,11 @@ enum {
 extern u8 initEntry(T_QE* entry);
 extern T_QE* getFurthestEntry(T_QE* entry, T_QE* queue);
 extern void fini(T_QE* entry);
+extern u8 initSearcher(u8 search_strategy, u32 inputs_number);
+extern T_QE* select_next_entry();
 
-
+extern void set_cur_entry(T_QE* _cur);
+extern void on_new_seed_found(T_QE*_entry);
 /* Get unix time in milliseconds */
 
 static u64 get_cur_time(void) {
@@ -793,6 +796,8 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
      q->trace_mini_persist = ck_alloc(MAP_SIZE >> 3);
      minimize_bits(q->trace_mini_persist, trace_bits);
    }
+
+   on_new_seed_found(q);
 
 }
 
@@ -7594,10 +7599,12 @@ static void save_cmdline(u32 argc, char** argv) {
 /* Select next seed file to fuzz */
 static struct queue_entry* selectNext(void)
 {
-    initEntry(queue_cur);
+    return select_next_entry();
+}
 
-    return getFurthestEntry(queue_cur, queue);
-    //return queue_cur->next;
+static void update_searcher_queue_cur(struct queue_entry* cur)
+{
+    set_cur_entry(cur);
 }
 
 #ifndef AFL_LIB
@@ -7880,6 +7887,8 @@ int main(int argc, char** argv) {
 
   cull_queue();
 
+  initSearcher(RANDOMSEARCH, queued_paths);
+
   show_init_stats();
 
   seek_to = find_start_position();
@@ -7938,6 +7947,8 @@ int main(int argc, char** argv) {
         sync_fuzzers(use_argv);
 
     }
+
+    update_searcher_queue_cur(queue_cur);
 
     skipped_fuzz = fuzz_one(use_argv);
 

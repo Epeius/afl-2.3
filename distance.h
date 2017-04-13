@@ -64,6 +64,13 @@ typedef struct distance_entry {
     T_QE* entry;
 }T_DE;
 
+enum {
+    /* 00 */ RANDOMSEARCH,
+    /* 01 */ CSSEARCH,
+    /* 02 */ EDSEARCH,
+    /* 03 */ ORDERSEARCH,
+};
+
 #ifdef _cplusplus
 }
 #endif
@@ -72,6 +79,16 @@ typedef struct distance_entry {
 #ifdef _cplusplus
 extern "C" {
 #endif
+
+// Initialize the searcher
+// Arg: search_strategy: specify which searcher will use
+// Return: 1 if intilized successfully, otherwise 0.
+u8 initSearcher(u8 search_strategy, u32 inputs_number);
+
+T_QE* select_next_entry();
+void set_cur_entry(T_QE* _cur);
+void on_new_seed_found(T_QE* _entry);
+
 // Initialize the distance power instruction
 // Arg: entry: the current queue entry
 // Return: 1 if intilized successfully, otherwise 0.

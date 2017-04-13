@@ -7,6 +7,7 @@
 #include <iostream>
 #include <fstream>        
 #include <cmath>
+#include <random>
 
 extern "C" {
 #include "config.h"
@@ -32,9 +33,126 @@ typedef struct distance_power {
 }T_DP;
 
 u8 parseLivenessFile(T_QE* entry);
+
+class Searcher;
+
+// global searcher
+Searcher* AFLSearcher = NULL;
+
+/////////////////////////////////////////////////
+//           Searchers                         //
+/////////////////////////////////////////////////
+
+class Searcher {
+public:
+    T_QE* m_queue;
+    T_QE* m_queue_cur; 
+public:
+
+    Searcher(T_QE* _queue) { m_queue = _queue; }
+
+    T_QE* getQueueCur(void) const { return m_queue_cur; }
+    void setQueueCur(T_QE* _cur) { m_queue_cur = _cur; }
+    
+    virtual ~Searcher() { }
+    virtual T_QE* SelectNextSeed() = 0;
+    virtual void onNewSeedFound(T_QE* _entry) { }
+
+};
+
+/*
+class CSSearcher : public Searcher {
+
+};
+*/
+
+/*
+ * A random searcher will select randomly a seed filefrom the queue.
+ */
+class RandomSearcher : public Searcher {
+private:
+    u32 m_total_paths;
+    std::mt19937 m_rnd;
+public:
+     RandomSearcher(T_QE* _queue, u32 inputs_number): Searcher(_queue) {
+         m_total_paths = inputs_number;
+     }
+
+    ~RandomSearcher() {}
+
+    T_QE* SelectNextSeed() {
+        std::uniform_int_distribution<> dis(0, m_total_paths - 1);
+        u32 off = dis(m_rnd);
+        T_QE* _tmp = m_queue;
+        while (off) {
+            _tmp = _tmp->next;
+            off--;
+        }
+
+        return _tmp;
+    }
+
+    void onNewSeedFound(T_QE* _entry) {
+        m_total_paths += 1;
+    }
+};
+
+/*
+ * An ordered searcher which will try each seed file in the queue
+ * one by one.
+ */
+class OrderSearcher : public Searcher {
+public:
+    OrderSearcher(T_QE* _queue): Searcher(_queue) { }
+    ~OrderSearcher() {}
+
+    T_QE* SelectNextSeed() {
+        m_queue_cur = m_queue_cur->next;
+        return m_queue_cur;
+    }
+
+};
+
 /////////////////////////////////////////////////
 //           Interfaces to fuzzer              //
 /////////////////////////////////////////////////
+
+u8 initSearcher(u8 search_strategy, u32 inputs_number)
+{
+    switch (search_strategy) {
+        case ORDERSEARCH: {
+            AFLSearcher = new OrderSearcher(queue);
+            break;     
+        }
+        case RANDOMSEARCH: {
+            AFLSearcher = new RandomSearcher(queue, inputs_number);
+            break;     
+        }
+ 
+        default:
+            break;
+    }
+
+    return 1;
+}
+
+T_QE* select_next_entry(void) 
+{
+    return AFLSearcher->SelectNextSeed();
+}
+
+void set_cur_entry(T_QE* _cur)
+{
+    AFLSearcher->setQueueCur(_cur);
+}
+
+void on_new_seed_found(T_QE* _entry)
+{
+    if (!AFLSearcher)
+        return;
+
+    AFLSearcher->onNewSeedFound(_entry);
+}
 
 u8 initEntry(T_QE* entry) 
 {

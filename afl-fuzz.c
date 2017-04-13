@@ -291,6 +291,7 @@ extern void fini(T_QE* entry);
 extern u8 initSearcher(u8 search_strategy, u32 inputs_number);
 extern T_QE* select_next_entry();
 
+extern void set_searcher_queue(T_QE* _cur);
 extern void set_cur_entry(T_QE* _cur);
 extern void on_new_seed_found(T_QE*_entry);
 /* Get unix time in milliseconds */
@@ -776,7 +777,10 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
     queue_top->next = q;
     queue_top = q;
 
-  } else q_prev100 = queue = queue_top = q;
+  } else {
+    q_prev100 = queue = queue_top = q;
+    set_searcher_queue(q);
+  }
 
   queued_paths++;
   pending_not_fuzzed++;
@@ -7861,6 +7865,10 @@ int main(int argc, char** argv) {
   init_count_class16();
 
   setup_dirs_fds();
+  
+  // FIXME: When is the best time to initialize the searcher?
+  initSearcher(CSSEARCH, queued_paths);
+  
   read_testcases();
   load_auto();
 
@@ -7886,8 +7894,6 @@ int main(int argc, char** argv) {
   perform_dry_run(use_argv);
 
   cull_queue();
-
-  initSearcher(RANDOMSEARCH, queued_paths);
 
   show_init_stats();
 

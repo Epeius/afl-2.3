@@ -86,6 +86,7 @@ extern "C" {
 u8 initSearcher(u8 search_strategy, u32 inputs_number);
 
 T_QE* select_next_entry();
+void set_searcher_queue(T_QE* _cur);
 void set_cur_entry(T_QE* _cur);
 void on_new_seed_found(T_QE* _entry);
 

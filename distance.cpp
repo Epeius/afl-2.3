@@ -49,9 +49,11 @@ public:
     T_QE* m_queue_cur; 
 public:
 
-    Searcher(T_QE* _queue) { m_queue = _queue; }
+    Searcher(): m_queue(NULL), m_queue_cur(NULL) { }
 
     T_QE* getQueueCur(void) const { return m_queue_cur; }
+    
+    void setQueue(T_QE* _cur) { m_queue = _cur; }
     void setQueueCur(T_QE* _cur) { m_queue_cur = _cur; }
     
     virtual ~Searcher() { }
@@ -61,10 +63,130 @@ public:
 };
 
 /*
+ * A CS searcher is a LOCAL optimization. The core insight is that:
+ * select the most different seed with current seed based on cosine 
+ * similarity.
+ */
 class CSSearcher : public Searcher {
+private:
+    std::map<T_QE*, T_DP> m_entry_power;
 
+    u32 getCSdegree(T_QE* Qa, T_QE* Qb);
+public:
+    CSSearcher(): Searcher() { }
+    ~CSSearcher() {}
+
+    T_QE* SelectNextSeed();
+
+    void onNewSeedFound(T_QE* _entry);
+   
 };
-*/
+
+u32 CSSearcher::getCSdegree(T_QE* Qa, T_QE* Qb) 
+{
+    if (!Qa->trace_mini_persist) {
+        char msg [512];
+        sprintf(msg, "Cannot find mini trace for %s\n", Qa->fname);
+        fputs(msg, afl_log_file);
+        return 0;
+    }
+
+    if (!Qb->trace_mini_persist) {
+        char msg [512];
+        sprintf(msg, "Cannot find mini trace for %s\n", Qb->fname);
+        fputs(msg, afl_log_file);
+        return 0;
+    }
+
+    double dot = 0.0, denom_a = 0.0, denom_b = 0.0 ;
+    for(unsigned int i = 0u; i < (MAP_SIZE >> 3); i++) {
+        dot += Qa->trace_mini_persist[i] * Qb->trace_mini_persist[i];
+        denom_a += Qa->trace_mini_persist[i] * Qa->trace_mini_persist[i];
+        denom_b += Qb->trace_mini_persist[i] * Qb->trace_mini_persist[i];
+    }
+    double cs_normarized = dot / (sqrt(denom_a) * sqrt(denom_b));
+
+    // integer-ize to 0 ~ 10000
+    u32 cs = 10000 - (u32)(cs_normarized * 10000);
+    return cs;
+}
+
+// When new seed is found, calculate the CS to each seed already in the queue.
+void CSSearcher::onNewSeedFound(T_QE* _entry)
+{
+    // first time
+    if (m_queue == _entry) {
+        T_DP _new_dp;
+        m_entry_power.insert(std::make_pair(_entry, _new_dp));
+        return;
+    }
+    T_QE* _tmp = m_queue;
+    while (_tmp) {
+        if (_tmp == _entry) {
+            _tmp = _tmp->next;
+            continue;
+        }
+        
+        u32 csd = getCSdegree(_tmp, _entry);
+        
+        if (m_entry_power.find(_tmp) == m_entry_power.end()) {
+            char msg[512];
+            sprintf(msg, "Cannot find entry_power for %s\n", _tmp->fname);
+            fputs(msg, afl_log_file);
+            exit(-1);
+        }
+
+        T_DE de;
+        de.distance = csd;
+        de.entry    = _entry;
+
+        m_entry_power[_tmp].distance.insert(de);
+        m_entry_power[_tmp].calculated_entry.insert(_entry);
+
+        if (m_entry_power.find(_entry) == m_entry_power.end()) {
+            T_DP _new_dp;
+            m_entry_power.insert(std::make_pair(_entry, _new_dp));
+        }
+
+        T_DE new_de;
+        new_de.distance = csd;
+        new_de.entry    = _tmp;
+
+        m_entry_power[_entry].distance.insert(new_de);
+        m_entry_power[_entry].calculated_entry.insert(_tmp);
+
+        _tmp = _tmp->next;
+    }
+}
+
+T_QE* CSSearcher::SelectNextSeed() 
+{
+    std::set<T_DE, comp> distance = m_entry_power[m_queue_cur].distance;
+    for (auto it = distance.begin(), end = distance.end(); it != end; it++) {
+        T_DE _t_dis_entry = *it;
+        if (!_t_dis_entry.entry->was_fuzzed_by_distance) {
+            _t_dis_entry.entry->was_fuzzed_by_distance = 1;
+            char msg[512];
+            sprintf(msg, "selected %s, distance is %d\n", _t_dis_entry.entry->fname, _t_dis_entry.distance);
+            fputs(msg, afl_log_file);
+            return _t_dis_entry.entry;
+        }
+    }
+
+    // Reaching here means all the entries have been fuzzed already, then use the 
+    // logic of AFL itself to select.
+    T_QE* _tmp_entry = m_queue;
+    while (_tmp_entry) {
+        _tmp_entry->was_fuzzed_by_distance = 0;
+        _tmp_entry = _tmp_entry->next;
+    }
+    char msg[256];
+    sprintf(msg, "all fuzzed, go to next cycle\n");
+    fputs(msg, afl_log_file);
+
+    return m_queue_cur->next;
+
+}
 
 /*
  * A random searcher will select randomly a seed filefrom the queue.
@@ -74,13 +196,16 @@ private:
     u32 m_total_paths;
     std::mt19937 m_rnd;
 public:
-     RandomSearcher(T_QE* _queue, u32 inputs_number): Searcher(_queue) {
-         m_total_paths = inputs_number;
+     RandomSearcher(): Searcher() {
+         m_total_paths = 0;
      }
 
     ~RandomSearcher() {}
 
     T_QE* SelectNextSeed() {
+
+        assert(m_total_paths && "No seed files?");
+
         std::uniform_int_distribution<> dis(0, m_total_paths - 1);
         u32 off = dis(m_rnd);
         T_QE* _tmp = m_queue;
@@ -103,7 +228,7 @@ public:
  */
 class OrderSearcher : public Searcher {
 public:
-    OrderSearcher(T_QE* _queue): Searcher(_queue) { }
+    OrderSearcher(): Searcher() { }
     ~OrderSearcher() {}
 
     T_QE* SelectNextSeed() {
@@ -121,14 +246,18 @@ u8 initSearcher(u8 search_strategy, u32 inputs_number)
 {
     switch (search_strategy) {
         case ORDERSEARCH: {
-            AFLSearcher = new OrderSearcher(queue);
+            AFLSearcher = new OrderSearcher();
             break;     
         }
         case RANDOMSEARCH: {
-            AFLSearcher = new RandomSearcher(queue, inputs_number);
+            AFLSearcher = new RandomSearcher();
             break;     
         }
- 
+        case CSSEARCH: {
+            AFLSearcher = new CSSearcher();
+            break;     
+        }
+
         default:
             break;
     }
@@ -139,6 +268,16 @@ u8 initSearcher(u8 search_strategy, u32 inputs_number)
 T_QE* select_next_entry(void) 
 {
     return AFLSearcher->SelectNextSeed();
+}
+
+void set_searcher_queue(T_QE* _cur)
+{
+    if (!AFLSearcher)
+        return;
+    
+    assert(!AFLSearcher->m_queue && "Already initialized the queue?");
+
+    AFLSearcher->m_queue = _cur;
 }
 
 void set_cur_entry(T_QE* _cur)

@@ -32,7 +32,7 @@
 #include "alloc-inl.h"
 #include "hash.h"
 
-#include "distance.h"
+#include "afl-searcher.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -219,6 +219,13 @@ static s32 cpu_aff = -1;       	      /* Selected CPU core                */
 
 static FILE* plot_file;               /* Gnuplot output file              */
 FILE* afl_log_file;
+
+struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
+                   *queue_cur,        /* Current offset within the queue  */
+                   *queue_top,        /* Top of the list                  */
+                   *q_prev100;        /* Previous 100 marker              */
+
+
 
 static struct queue_entry*
   top_rated[MAP_SIZE];                /* Top entries for bitmap bytes     */
@@ -7867,7 +7874,7 @@ int main(int argc, char** argv) {
   setup_dirs_fds();
   
   // FIXME: When is the best time to initialize the searcher?
-  initSearcher(CSSEARCH, queued_paths);
+  initSearcher(RANDOMSEARCH, queued_paths);
   
   read_testcases();
   load_auto();
@@ -7998,7 +8005,7 @@ stop_fuzzing:
 
   fclose(plot_file);
   fclose(afl_log_file);
-  distance_fini(queue);
+  extra_fini(queue);
 
   destroy_queue();
   destroy_extras();

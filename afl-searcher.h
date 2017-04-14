@@ -1,7 +1,8 @@
-#ifndef _DISTANCE_H_
-#define _DISTANCE_H_
+#ifndef _AFL_SEARCHER_H
+#define _AFL_SEARCHER_H
 #include <stdbool.h>
 #include "types.h"
+#include <stdio.h>
 
 
 struct queue_entry {
@@ -39,24 +40,6 @@ struct queue_entry {
 };
 
 extern FILE* afl_log_file;
-#ifdef _cplusplus
-extern "C" struct queue_entry;
-#endif
-#ifdef _cplusplus
-extern "C" {
-#endif
-    struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
-                   *queue_cur, /* Current offset within the queue  */
-                   *queue_top, /* Top of the list                  */
-                   *q_prev100; /* Previous 100 marker              */
-#ifdef _cplusplus
-}
-#endif
-
-#ifdef _cplusplus
-extern "C" {
-#endif
-
 typedef struct queue_entry T_QE;
 
 typedef struct distance_entry {
@@ -72,47 +55,43 @@ enum {
 };
 
 #ifdef _cplusplus
-}
-#endif
-
-/* Function Defines */
-#ifdef _cplusplus
 extern "C" {
 #endif
 
-// Initialize the searcher
-// Arg: search_strategy: specify which searcher will use
+// Initialize the searcher.
+// Arg1: search_strategy: specify which searcher will use
+// Arg2: the inputs_number when initializing the searcher
 // Return: 1 if intilized successfully, otherwise 0.
 u8 initSearcher(u8 search_strategy, u32 inputs_number);
 
+// Main interface of searcher which is used to select next entry/seed.
+// Arg: None
+// Return: return next select entry/seed.
 T_QE* select_next_entry();
+
+// Initialize the searcher's queue list.
+// Arg: _cur: pointer to the queue
+// Return: None
 void set_searcher_queue(T_QE* _cur);
+
+// Set current entry of the searcher, this is because AFL will modify our searcher's 
+// result according to its own score strategy. Should be FIXME-ed.
+// Arg: _cur: pointer to current queue entry
+// Return: None
 void set_cur_entry(T_QE* _cur);
+
+// Event triggered when AFL finds new path, this event enables the searcher to update its
+// internal information.
+// Arg: _entry: the new seed file found
+// Return: None
 void on_new_seed_found(T_QE* _entry);
-
-// Initialize the distance power instruction
-// Arg: entry: the current queue entry
-// Return: 1 if intilized successfully, otherwise 0.
-u8 initEntry(T_QE* entry);
-
-// Calculate the distance between different files.
-// Arg1: Qa: template file
-// Arg2: Qb: the other file
-// Return: The distance which is an u32 integer.
-u32 getDistance(T_QE* Qa, T_QE* Qb);
-
-// Get the seed that has longgest distance to current queue entry.
-// Arg1: entry: current queue entry
-// Arg2: queue: the queue instance
-// Return: The queue entry.
-T_QE* getFurthestEntry(T_QE* entry, T_QE* queue);
 
 // Free all the memory after entry node.
 // Arg: entry: then entry point, should be queue's head.
-void distance_fini(T_QE* entry);
+void extra_fini(T_QE* entry);
 
 #ifdef _cplusplus
 }
-#endif 
+#endif
 
-#endif /* _DISTANCE_H_ */
+#endif /* _AFL_SEARCHER_H */

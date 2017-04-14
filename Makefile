@@ -72,9 +72,9 @@ afl-as: afl-as.c afl-as.h $(COMM_HDR) | test_x86
 	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
 	ln -sf afl-as as
 
-afl-fuzz: afl-fuzz.c $(COMM_HDR) distance.o | test_x86
+afl-fuzz: afl-fuzz.c $(COMM_HDR) Searcher.o afl-searcher.o | test_x86
 	$(CC) $(CFLAGS) -c $@.c -o $@.o
-	$(CXX) $(CFALGS) $(CXXFLAGS) $@.o distance.o -o $@ $(LDFLAGS)
+	$(CXX) $(CFALGS) $(CXXFLAGS) $@.o Searcher.o afl-searcher.o -o $@ $(LDFLAGS)
 
 afl-showmap: afl-showmap.c $(COMM_HDR) | test_x86
 	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
@@ -88,8 +88,11 @@ afl-analyze: afl-analyze.c $(COMM_HDR) | test_x86
 afl-gotcpu: afl-gotcpu.c $(COMM_HDR) | test_x86
 	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
 
-distance.o: distance.cpp $(COMM_HDR)
-	$(CXX) $(CXXFLAGS) -c distance.cpp -o $@
+afl-searcher: afl-searcher.cpp $(COMMOM_HDR)
+	$(CXX) $(CXXFLAGS) -c afl-searcher.cpp -o $@
+
+Searcher.o: Searcher.cpp $(COMM_HDR)
+	$(CXX) $(CXXFLAGS) -c Searcher.cpp -o $@
 
 ifndef AFL_NO_X86
 

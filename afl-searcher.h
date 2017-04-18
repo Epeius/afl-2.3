@@ -50,7 +50,7 @@ typedef struct distance_entry {
 enum {
     /* 00 */ RANDOMSEARCH,
     /* 01 */ CSSEARCH,
-    /* 02 */ EDSEARCH,
+    /* 02 */ EUSEARCH,
     /* 03 */ ORDERSEARCH,
 };
 

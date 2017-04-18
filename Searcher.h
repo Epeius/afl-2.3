@@ -117,18 +117,34 @@ public:
 //////////////////////////////////////////////////////////////////////
 
 class CSSearcher : public Searcher {
-private:
+protected:
     std::map<T_QE*, T_DP> m_entry_power;
 
-    u32 getCSdegree(T_QE* Qa, T_QE* Qb);
+    virtual u32 getSimilarityDegree(T_QE* Qa, T_QE* Qb);
 public:
     CSSearcher(): Searcher() { }
     ~CSSearcher() {}
 
-    T_QE* SelectNextSeed();
+    virtual T_QE* SelectNextSeed();
 
     void onNewSeedFound(T_QE* _entry);
    
 };
+
+//////////////////////////////////////////////////////////////////////
+// A EU searcher is a LOCAL optimization. The core insight is that: //
+// select the most different seed with current seed based on eucli- //
+// dienne distance similarity                                       //
+//////////////////////////////////////////////////////////////////////
+
+class EUSearcher : public CSSearcher {
+public:
+    EUSearcher(): CSSearcher() { }
+    ~EUSearcher() {}
+
+public:
+    u32 getSimilarityDegree(T_QE* Qa, T_QE* Qb);
+};
+
 
 #endif /* _SEARCHER_H_ */

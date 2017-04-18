@@ -41,7 +41,7 @@ void Searcher::onNewSeedFound(T_QE* _entry)
 
 }
 
-u32 CSSearcher::getCSdegree(T_QE* Qa, T_QE* Qb) 
+u32 CSSearcher::getSimilarityDegree(T_QE* Qa, T_QE* Qb) 
 {
     if (!Qa->trace_mini_persist) {
         char msg [512];
@@ -86,7 +86,7 @@ void CSSearcher::onNewSeedFound(T_QE* _entry)
             continue;
         }
         
-        u32 csd = getCSdegree(_tmp, _entry);
+        u32 csd = getSimilarityDegree(_tmp, _entry);
         
         if (m_entry_power.find(_tmp) == m_entry_power.end()) {
             char msg[512];
@@ -145,6 +145,32 @@ T_QE* CSSearcher::SelectNextSeed()
 
     return m_queue_cur->next;
 
+}
+
+u32 EUSearcher::getSimilarityDegree(T_QE* Qa, T_QE* Qb)
+{
+    if (!Qa->trace_mini_persist) {
+        char msg [512];
+        sprintf(msg, "Cannot find mini trace for %s\n", Qa->fname);
+        fputs(msg, afl_log_file);
+        return 0;
+    }
+
+    if (!Qb->trace_mini_persist) {
+        char msg [512];
+        sprintf(msg, "Cannot find mini trace for %s\n", Qb->fname);
+        fputs(msg, afl_log_file);
+        return 0;
+    }
+
+    double dot = 0.0;
+    for(unsigned int i = 0u; i < (MAP_SIZE >> 3); i++) {
+        u32 sd = abs((u8)(Qa->trace_mini_persist[i]) - (u8)(Qb->trace_mini_persist[i]));
+        dot += (sd * sd); // not overflow here (SAFE)
+    }
+    double eu = sqrt(dot);
+
+    return (u32)eu;
 }
 
 //////////////////////////////////////////////////////

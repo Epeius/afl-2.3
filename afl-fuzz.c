@@ -7630,6 +7630,7 @@ int main(int argc, char** argv) {
   u8  *extras_dir = 0;
   u8  mem_limit_given = 0;
   u8  exit_1 = !!getenv("AFL_BENCH_JUST_ONE");
+  u32  searcher_id = 0;
   char** use_argv;
 
   struct timeval tv;
@@ -7642,7 +7643,7 @@ int main(int argc, char** argv) {
   gettimeofday(&tv, &tz);
   srandom(tv.tv_sec ^ tv.tv_usec ^ getpid());
 
-  while ((opt = getopt(argc, argv, "+i:o:f:m:t:T:dnCB:S:M:x:Q")) > 0)
+  while ((opt = getopt(argc, argv, "+i:o:f:m:t:T:dnCB:S:M:x:Qs:")) > 0)
 
     switch (opt) {
 
@@ -7659,6 +7660,13 @@ int main(int argc, char** argv) {
 
         if (out_dir) FATAL("Multiple -o options not supported");
         out_dir = optarg;
+        break;
+
+      case 's': /* searcher */
+        
+        if (sscanf(optarg, "%u", &searcher_id) < 0
+                || searcher_id >5) 
+            FATAL("Unsupported searcher");
         break;
 
       case 'M': { /* master sync ID */
@@ -7874,7 +7882,7 @@ int main(int argc, char** argv) {
   setup_dirs_fds();
   
   // FIXME: When is the best time to initialize the searcher?
-  initSearcher(RANDOMSEARCH, queued_paths);
+  initSearcher(searcher_id, queued_paths);
   
   read_testcases();
   load_auto();

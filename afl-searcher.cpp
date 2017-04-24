@@ -28,6 +28,10 @@ u8 initSearcher(u8 search_strategy, u32 inputs_number)
             AFLSearcher = new EUSearcher();
             break;     
         }
+        case JISEARCH: {
+            AFLSearcher = new JISearcher();
+            break;     
+        }
 
         default:
             break;

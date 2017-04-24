@@ -147,4 +147,13 @@ public:
 };
 
 
+class JISearcher : public CSSearcher {
+public:
+    JISearcher() : CSSearcher() { }
+    ~JISearcher() {}
+
+public:
+    u32 getSimilarityDegree(T_QE* Qa, T_QE* Qb);
+};
+
 #endif /* _SEARCHER_H_ */

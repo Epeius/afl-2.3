@@ -173,6 +173,35 @@ u32 EUSearcher::getSimilarityDegree(T_QE* Qa, T_QE* Qb)
     return (u32)eu;
 }
 
+u32 JISearcher::getSimilarityDegree(T_QE* Qa, T_QE* Qb)
+{
+    if (!Qa->trace_mini_persist) {
+        char msg [512];
+        sprintf(msg, "Cannot find mini trace for %s\n", Qa->fname);
+        fputs(msg, afl_log_file);
+        return 0;
+    }
+
+    if (!Qb->trace_mini_persist) {
+        char msg [512];
+        sprintf(msg, "Cannot find mini trace for %s\n", Qb->fname);
+        fputs(msg, afl_log_file);
+        return 0;
+    }
+
+    double JIV = 0.0, denom_a = 0.0, denom_b = 0.0;
+    for(unsigned int i = 0u; i < (MAP_SIZE >> 3); i++) {
+        JIV += Qa->trace_mini_persist[i] * Qb->trace_mini_persist[i];
+        denom_a += Qa->trace_mini_persist[i] * Qa->trace_mini_persist[i];
+        denom_b += Qb->trace_mini_persist[i] * Qb->trace_mini_persist[i];
+    }
+
+    JIV = JIV / (denom_a + denom_b - JIV);
+    
+    u32 dis = 1000 - (u32)(JIV * 1000);
+    return (u32)dis;
+}
+
 //////////////////////////////////////////////////////
 /////////////////////////////////////////////////////
 

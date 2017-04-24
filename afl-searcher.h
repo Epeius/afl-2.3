@@ -52,6 +52,7 @@ enum {
     /* 01 */ CSSEARCH,
     /* 02 */ EUSEARCH,
     /* 03 */ ORDERSEARCH,
+    /* 04 */ JISEARCH,
 };
 
 #ifdef _cplusplus

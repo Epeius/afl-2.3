@@ -6520,7 +6520,6 @@ abandon_entry:
      cycle and have not seen this entry before. */
 
   if (!stop_soon && !queue_cur->cal_failed && !queue_cur->was_fuzzed) {
-    queue_cur->was_fuzzed = 1;
     pending_not_fuzzed--;
     if (queue_cur->favored) pending_favored--;
   }
@@ -7972,6 +7971,7 @@ int main(int argc, char** argv) {
     update_searcher_queue_cur(queue_cur);
 
     skipped_fuzz = fuzz_one(use_argv);
+    queue_cur->was_fuzzed = 1;
 
     if (!stop_soon && sync_id && !skipped_fuzz) {
       

@@ -31,6 +31,7 @@
 #include "debug.h"
 #include "alloc-inl.h"
 #include "hash.h"
+#include "khash.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -216,6 +217,7 @@ static s32 cpu_aff = -1;       	      /* Selected CPU core                */
 #endif /* HAVE_AFFINITY */
 
 static FILE* plot_file;               /* Gnuplot output file              */
+FILE* afl_log_file;
 
 struct queue_entry {
 
@@ -315,6 +317,21 @@ enum {
   /* 05 */ FAULT_NOBITS
 };
 
+// from afl-fast
+KHASH_MAP_INIT_INT(32,u32)
+khash_t(32) *cksum2fuzz;
+
+static u32 getFuzz(u32 key_cksum){
+
+  khiter_t k = kh_get(32, cksum2fuzz, key_cksum);
+
+  if (k != kh_end(cksum2fuzz)){
+    return kh_value(cksum2fuzz, k);
+  } else {
+    return 0;
+  }
+}
+// afl-fast end
 
 /* Get unix time in milliseconds */
 
@@ -2863,6 +2880,16 @@ static void perform_dry_run(char** argv) {
 
     if (q->var_behavior) WARNF("Instrumentation output varies across runs.");
 
+    // add khash of initial seeds
+    khiter_t k = kh_get(32, cksum2fuzz, q->exec_cksum);
+    if (k != kh_end(cksum2fuzz)){ 
+        //kn_value(cksum2fuzz, k) ++;
+    } else {
+        int ret;
+        k = kh_put (32, cksum2fuzz, q->exec_cksum, &ret);
+        kh_value(cksum2fuzz, k) = 1;
+    }
+
     q = q->next;
 
   }
@@ -3112,6 +3139,16 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   s32 fd;
   u8  keeping = 0, res;
 
+  // from afl-fast
+  /* Update path frequency. */
+  khiter_t k;
+  u32 key_cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+  k = kh_get(32, cksum2fuzz, key_cksum);
+  if (k != kh_end(cksum2fuzz)){
+    kh_value(cksum2fuzz, k) ++;
+  }
+  // afl-fast end
+
   if (fault == crash_mode) {
 
     /* Keep only if there are new bits in the map, add to queue for
@@ -3141,6 +3178,14 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
     }
 
     queue_top->exec_cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+
+    // from afl-fast
+    int ret;
+    if (k == kh_end (cksum2fuzz)) {
+      k = kh_put (32, cksum2fuzz, key_cksum, &ret);
+      kh_value (cksum2fuzz, k) = 1;
+    }
+    // afl-fast end
 
     /* Try to calibrate inline; this also calls update_bitmap_score() when
        successful. */
@@ -4541,6 +4586,7 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
     if (!out_buf || !len) return 0;
 
   }
+
 
   write_to_testcase(out_buf, len);
 
@@ -7631,6 +7677,10 @@ int main(int argc, char** argv) {
   struct timeval tv;
   struct timezone tz;
 
+  // from afl-fast
+  cksum2fuzz = kh_init(32);
+  // afl-fast end
+
   SAYF(cCYA "afl-fuzz " cBRI VERSION cRST " by <lcamtuf@google.com>\n");
 
   doc_path = access(DOC_PATH, F_OK) ? "docs" : DOC_PATH;
@@ -7855,6 +7905,9 @@ int main(int argc, char** argv) {
 #ifdef HAVE_AFFINITY
   bind_to_free_cpu();
 #endif /* HAVE_AFFINITY */
+  afl_log_file = fopen(LOGFILE, "w");
+  if (afl_log_file <= 0) 
+    FATAL("Cannot create log file.");
 
   check_crash_handling();
   check_cpu_governor();
@@ -7949,6 +8002,8 @@ int main(int argc, char** argv) {
 
     }
 
+    
+
     skipped_fuzz = fuzz_one(use_argv);
 
     if (!stop_soon && sync_id && !skipped_fuzz) {
@@ -7987,12 +8042,29 @@ stop_fuzzing:
            "    (For info on resuming, see %s/README.)\n", doc_path);
 
   }
+  {
+      // ok, let collect useful information here
+      struct queue_entry *q = queue;
 
+      while (q) {
+        char msg [512];
+        sprintf(msg, "Seed %s's frequency is %d \n", q->fname, getFuzz(q->exec_cksum));
+        fputs(msg, afl_log_file);
+ 
+        q = q->next;
+      }
+  }
+  
+  fclose(afl_log_file);
   fclose(plot_file);
   destroy_queue();
   destroy_extras();
   ck_free(target_path);
   ck_free(sync_id);
+
+  // from afl-fast
+  kh_destroy(32, cksum2fuzz);
+  // afl-fast end
 
   alloc_report();
 

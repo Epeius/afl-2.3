@@ -43,6 +43,10 @@ class Searcher {
 public:
     T_QE* m_queue;
     T_QE* m_queue_cur; 
+    
+    std::set<u32> m_unFuzzedinCycle;
+    std::set<u32> m_queuedIDs;
+
 public:
 
     Searcher(): m_queue(NULL), m_queue_cur(NULL) { }
@@ -51,6 +55,9 @@ public:
     
     void setQueue(T_QE* _cur);
     void setQueueCur(T_QE* _cur);
+
+    void markAsFuzzed(T_QE* _cur);        
+    void onNewCycle();
     
     virtual ~Searcher();
     virtual T_QE* SelectNextSeed() = 0;
@@ -89,6 +96,7 @@ public:
     }
 
     void onNewSeedFound(T_QE* _entry) {
+        Searcher::onNewSeedFound(_entry);
         m_total_paths += 1;
     }
 };

@@ -36,9 +36,20 @@ void Searcher::setQueueCur(T_QE* _cur)
     m_queue_cur = _cur;
 }
 
+void Searcher::markAsFuzzed(T_QE* _cur)
+{
+    m_unFuzzedinCycle.erase(_cur->id);
+}
+
+void Searcher::onNewCycle()
+{
+    m_unFuzzedinCycle = m_queuedIDs;
+}
+
 void Searcher::onNewSeedFound(T_QE* _entry) 
 {
-
+    m_unFuzzedinCycle.insert(_entry->id);
+    m_queuedIDs.insert(_entry->id);
 }
 
 u32 CSSearcher::getSimilarityDegree(T_QE* Qa, T_QE* Qb) 
@@ -73,6 +84,7 @@ u32 CSSearcher::getSimilarityDegree(T_QE* Qa, T_QE* Qb)
 // When new seed is found, calculate the CS to each seed already in the queue.
 void CSSearcher::onNewSeedFound(T_QE* _entry)
 {
+    Searcher::onNewSeedFound(_entry);
     // first time
     if (m_queue == _entry) {
         T_DP _new_dp;

@@ -26,6 +26,8 @@ struct queue_entry {
       handicap,                       /* Number of queue cycles behind    */
       depth;                          /* Path depth                       */
 
+  u8 id;                              /* ID                               */
+
   u8* trace_mini;                     /* Trace bytes, if kept             */
   u8* trace_mini_persist;             /* Trace bytes, if kept             */
   u32 tc_ref;                         /* Trace bytes ref count            */

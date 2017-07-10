@@ -2994,6 +2994,7 @@ static void pivot_inputs(void) {
 
     if (q->passed_det) mark_as_det_done(q);
 
+    q->id = id;
     q = q->next;
     id++;
 
@@ -3134,6 +3135,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
       queued_with_cov++;
     }
 
+    queue_top->id = queued_paths - 1;
     queue_top->exec_cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
     /* Try to calibrate inline; this also calls update_bitmap_score() when
@@ -7986,7 +7988,7 @@ int main(int argc, char** argv) {
 
     queue_cur = selectNext();
 
-    current_entry++;
+    current_entry = queue_cur->id;
 
   }
 

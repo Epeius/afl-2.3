@@ -144,8 +144,8 @@ T_QE* CSSearcher::SelectNextSeed()
         }
     }
 
-    // Reaching here means all the entries have been fuzzed already, then use the 
-    // logic of AFL itself to select.
+    // Reaching here means all the entries have been fuzzed already, 
+    // then return NULL to force enter a new cycle.
     T_QE* _tmp_entry = m_queue;
     while (_tmp_entry) {
         _tmp_entry->was_fuzzed_by_distance = 0;
@@ -155,7 +155,7 @@ T_QE* CSSearcher::SelectNextSeed()
     sprintf(msg, "all fuzzed, go to next cycle\n");
     fputs(msg, afl_log_file);
 
-    return m_queue_cur->next;
+    return NULL;
 
 }
 

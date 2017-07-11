@@ -2994,6 +2994,7 @@ static void pivot_inputs(void) {
     if (q->passed_det) mark_as_det_done(q);
 
     q->id = id;
+    on_new_seed_found(q);
     q = q->next;
     id++;
 

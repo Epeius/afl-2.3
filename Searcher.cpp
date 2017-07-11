@@ -52,6 +52,11 @@ void Searcher::onNewSeedFound(T_QE* _entry)
     m_queuedIDs.insert(_entry->id);
 }
 
+u32 Searcher::getFuzzedNumber()
+{
+    return m_queuedIDs.size() - m_unFuzzedinCycle.size();
+}
+
 u32 CSSearcher::getSimilarityDegree(T_QE* Qa, T_QE* Qb) 
 {
     if (!Qa->trace_mini_persist) {
@@ -140,6 +145,7 @@ T_QE* CSSearcher::SelectNextSeed()
             char msg[512];
             sprintf(msg, "selected %s, distance is %d\n", _t_dis_entry.entry->fname, _t_dis_entry.distance);
             fputs(msg, afl_log_file);
+            Searcher::markAsFuzzed(_t_dis_entry.entry);
             return _t_dis_entry.entry;
         }
     }

@@ -302,6 +302,7 @@ extern void set_searcher_queue(T_QE* _cur);
 extern void set_cur_entry(T_QE* _cur);
 extern void on_new_seed_found(T_QE*_entry);
 extern void on_new_cycle();
+extern u32  get_fuzzed_number();
 /* Get unix time in milliseconds */
 
 static u64 get_cur_time(void) {
@@ -4045,7 +4046,7 @@ static void show_stats(void) {
 
   sprintf(tmp, "%s%s (%0.02f%%)", DI(current_entry),
           queue_cur->favored ? "" : "*",
-          ((double)current_entry * 100) / queued_paths);
+          ((double)(get_fuzzed_number()) * 100) / queued_paths);
 
   SAYF(bV bSTOP "  now processing : " cRST "%-17s " bSTG bV bSTOP, tmp);
 
@@ -7996,7 +7997,8 @@ int main(int argc, char** argv) {
 
     if (queue_cur)
       current_entry = queue_cur->id;
-
+    else
+      current_entry = queued_paths;
   }
 
   if (queue_cur) show_stats();

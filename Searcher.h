@@ -59,7 +59,9 @@ public:
 
     void markAsFuzzed(T_QE* _cur);        
     void onNewCycle();
-    
+   
+    u32  getFuzzedNumber();
+ 
     virtual ~Searcher();
     virtual T_QE* SelectNextSeed() = 0;
     virtual void onNewSeedFound(T_QE* _entry);
@@ -103,9 +105,6 @@ public:
         return _tmp;
     }
 
-    void onNewSeedFound(T_QE* _entry) {
-        Searcher::onNewSeedFound(_entry);
-    }
 };
 
 ///////////////////////////////////////////////////
@@ -120,6 +119,8 @@ public:
 
     T_QE* SelectNextSeed() {
         m_queue_cur = m_queue_cur->next;
+        if (m_queue_cur)
+            markAsFuzzed(m_queue_cur);
         return m_queue_cur;
     }
 

@@ -76,6 +76,14 @@ void on_new_cycle()
     AFLSearcher->onNewCycle();
 }
 
+u32 get_fuzzed_number()
+{
+    if (!AFLSearcher)
+        return 0; //FIXME
+
+    return AFLSearcher->getFuzzedNumber();
+}
+
 void extra_fini(T_QE* entry) 
 {
     T_QE* _qe = entry;

@@ -301,6 +301,7 @@ extern T_QE* select_next_entry();
 extern void set_searcher_queue(T_QE* _cur);
 extern void set_cur_entry(T_QE* _cur);
 extern void on_new_seed_found(T_QE*_entry);
+extern void on_new_cycle();
 /* Get unix time in milliseconds */
 
 static u64 get_cur_time(void) {
@@ -807,8 +808,6 @@ static void add_to_queue(u8* fname, u32 len, u8 passed_det) {
      q->trace_mini_persist = ck_alloc(MAP_SIZE >> 3);
      minimize_bits(q->trace_mini_persist, trace_bits);
    }
-
-   on_new_seed_found(q);
 
 }
 
@@ -3152,6 +3151,8 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
     close(fd);
 
     keeping = 1;
+
+    on_new_seed_found(queue_top);
 
   }
 
@@ -7941,6 +7942,10 @@ int main(int argc, char** argv) {
       cur_skipped_paths = 0;
       queue_cur         = queue;
 
+      if (queue_cycle > 1) {
+        on_new_cycle();
+      }
+
       while (seek_to) {
         current_entry++;
         seek_to--;
@@ -7988,7 +7993,8 @@ int main(int argc, char** argv) {
 
     queue_cur = selectNext();
 
-    current_entry = queue_cur->id;
+    if (queue_cur)
+      current_entry = queue_cur->id;
 
   }
 

@@ -13,6 +13,7 @@ extern "C" {
 #include <assert.h>
 #include <cmath>
 #include <random>
+#include <algorithm>
 
 using namespace std;
 
@@ -71,33 +72,39 @@ public:
 
 class RandomSearcher : public Searcher {
 private:
-    u32 m_total_paths;
     std::mt19937 m_rnd;
 public:
-     RandomSearcher(): Searcher() {
-         m_total_paths = 0;
-     }
+     RandomSearcher(): Searcher() { }
 
-    ~RandomSearcher() {}
+    ~RandomSearcher() { }
 
     T_QE* SelectNextSeed() {
 
-        assert(m_total_paths && "No seed files?");
+        u32 pendings = m_unFuzzedinCycle.size();
+        // all done, return NULL to force enter a new cycle
+        if (!pendings) 
+            return NULL;
 
-        std::uniform_int_distribution<> dis(0, m_total_paths - 1);
+        std::uniform_int_distribution<> dis(0, pendings - 1);
         u32 off = dis(m_rnd);
+        std::set<u32>::const_iterator it(m_unFuzzedinCycle.begin());
+
+        advance(it, off);
+        u32 id = *it;
+
         T_QE* _tmp = m_queue;
-        while (off) {
+        while (id) {
             _tmp = _tmp->next;
-            off--;
+            id--;
         }
+
+        markAsFuzzed(_tmp);
 
         return _tmp;
     }
 
     void onNewSeedFound(T_QE* _entry) {
         Searcher::onNewSeedFound(_entry);
-        m_total_paths += 1;
     }
 };
 

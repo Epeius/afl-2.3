@@ -68,6 +68,14 @@ void on_new_seed_found(T_QE* _entry)
     AFLSearcher->onNewSeedFound(_entry);
 }
 
+void on_new_cycle()
+{
+    if (!AFLSearcher)
+        return;
+
+    AFLSearcher->onNewCycle();
+}
+
 void extra_fini(T_QE* entry) 
 {
     T_QE* _qe = entry;

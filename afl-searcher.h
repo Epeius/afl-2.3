@@ -89,6 +89,11 @@ void set_cur_entry(T_QE* _cur);
 // Return: None
 void on_new_seed_found(T_QE* _entry);
 
+// Event triggered when AFL entering new cycles.
+// Arg: None
+// Return: None
+void on_new_cycle(void);
+
 // Free all the memory after entry node.
 // Arg: entry: then entry point, should be queue's head.
 void extra_fini(T_QE* entry);

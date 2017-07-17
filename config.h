@@ -19,11 +19,13 @@
 
 #include "types.h"
 
+
 /* Version string: */
 
 #define VERSION             "2.39b"
 
 #define LOGFILE             "afl.log"
+#define rubbish bin
 
 /******************************************************
  *                                                    *

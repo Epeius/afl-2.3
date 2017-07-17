@@ -24,7 +24,7 @@ MISC_PATH   = $(PREFIX)/share/afl
 
 # PROGS intentionally omit afl-as, which gets installed elsewhere.
 
-PROGS       = afl-gcc afl-fuzz afl-showmap afl-tmin afl-gotcpu afl-analyze
+PROGS       = afl-gcc afl-fuzz afl-showmap afl-tmin afl-gotcpu afl-analyze afl-searcher Searcher
 SH_PROGS    = afl-plot afl-cmin afl-whatsup
 
 CFLAGS     ?= -O0 -funroll-loops
@@ -91,7 +91,7 @@ afl-gotcpu: afl-gotcpu.c $(COMM_HDR) | test_x86
 afl-searcher: afl-searcher.cpp $(COMMOM_HDR)
 	$(CXX) $(CXXFLAGS) -c afl-searcher.cpp -o $@
 
-Searcher.o: Searcher.cpp $(COMM_HDR)
+Searcher: Searcher.cpp $(COMM_HDR)
 	$(CXX) $(CXXFLAGS) -c Searcher.cpp -o $@
 
 ifndef AFL_NO_X86
